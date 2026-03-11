@@ -37,11 +37,11 @@ export async function buildModelInput(
   }
 
   if (model === 'p-image-edit') {
-    return buildImageEditInput(prompt, aspectRatio, input, sessionId);
+    return await buildImageEditInput(prompt, aspectRatio, input, apiKey, sessionId);
   }
 
   if (model === 'p-video') {
-    return buildVideoInput(prompt, aspectRatio, input, apiKey, sessionId);
+    return await buildVideoInput(prompt, aspectRatio, input, apiKey, sessionId);
   }
 
   throw new Error(`Unknown Pruna model: ${model}`);
@@ -62,42 +62,52 @@ function buildImageInput(
   return payload;
 }
 
-function buildImageEditInput(
+async function buildImageEditInput(
   prompt: string,
   aspectRatio: PrunaAspectRatio,
   input: Record<string, unknown>,
+  apiKey: string,
   sessionId: string,
-): Record<string, unknown> {
-  // p-image-edit expects images array (base64 with data URI prefix or HTTPS URLs)
-  // Base64 format: data:image/jpeg;base64,{base64_string}
-  let images: string[];
-
-  const ensureDataUriPrefix = (img: string): string => {
-    if (img.startsWith('http')) return img; // Already a URL
-    if (img.startsWith('data:')) return img; // Already has data URI prefix
-    // Add data URI prefix for raw base64
-    return `data:image/jpeg;base64,${img}`;
-  };
+): Promise<Record<string, unknown>> {
+  // p-image-edit requires uploaded file URLs, not base64
+  // First upload all images to Pruna storage, then use the URLs
+  let rawImages: string[];
 
   if (Array.isArray(input.images)) {
     const validImages = (input.images as unknown[]).filter((img): img is string => typeof img === 'string');
     if (validImages.length === 0) {
       throw new Error("Image array is empty or contains no valid strings for p-image-edit.");
     }
-    images = validImages.map(ensureDataUriPrefix);
+    rawImages = validImages;
   } else if (typeof input.image === 'string') {
-    images = [ensureDataUriPrefix(input.image as string)];
+    rawImages = [input.image as string];
   } else if (typeof input.image_url === 'string') {
-    images = [ensureDataUriPrefix(input.image_url as string)];
+    rawImages = [input.image_url as string];
   } else if (Array.isArray(input.image_urls)) {
-    images = (input.image_urls as string[]).map(ensureDataUriPrefix);
+    rawImages = input.image_urls as string[];
   } else {
     throw new Error("Image is required for p-image-edit. Provide 'image', 'images', 'image_url', or 'image_urls'.");
   }
 
-  generationLogCollector.log(sessionId, TAG, `p-image-edit: ${images.length} image(s) prepared`);
+  generationLogCollector.log(sessionId, TAG, `p-image-edit: uploading ${rawImages.length} image(s) to Pruna storage...`);
 
-  const payload: Record<string, unknown> = { images, prompt, aspect_ratio: aspectRatio };
+  // Upload all images and get URLs
+  const imageUrls: string[] = [];
+  for (let i = 0; i < rawImages.length; i++) {
+    const rawImage = rawImages[i];
+    generationLogCollector.log(sessionId, TAG, `p-image-edit: uploading image ${i + 1}/${rawImages.length}...`);
+    const url = await uploadFileToStorage(rawImage, apiKey, sessionId);
+    imageUrls.push(url);
+  }
+
+  generationLogCollector.log(sessionId, TAG, `p-image-edit: all ${imageUrls.length} image(s) uploaded successfully`);
+
+  const payload: Record<string, unknown> = {
+    images: imageUrls,
+    prompt,
+    aspect_ratio: aspectRatio,
+    reference_image: "1", // Required by Pruna API for p-image-edit
+  };
 
   if (input.seed !== undefined) payload.seed = input.seed;
   if (input.disable_safety_checker !== undefined) payload.disable_safety_checker = input.disable_safety_checker;

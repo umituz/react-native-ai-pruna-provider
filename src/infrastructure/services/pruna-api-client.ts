@@ -130,7 +130,30 @@ export async function submitPrediction(
   const startTime = Date.now();
 
   const requestBody = { input };
-  generationLogCollector.log(sessionId, TAG, `Request body: ${JSON.stringify(requestBody).substring(0, 200)}...`);
+
+  // __DEV__ detailed request logging
+  if (typeof __DEV__ !== 'undefined' && __DEV__) {
+    const inputSummary: Record<string, string> = {};
+    for (const [key, value] of Object.entries(input)) {
+      if (typeof value === 'string' && value.length > 100) {
+        inputSummary[key] = `[string ${value.length} chars]`;
+      } else if (Array.isArray(value)) {
+        inputSummary[key] = `[array ${value.length} items]`;
+      } else {
+        inputSummary[key] = JSON.stringify(value);
+      }
+    }
+    console.log(`[DEV] [${TAG}] Request details:`, {
+      url: PRUNA_PREDICTIONS_URL,
+      model,
+      modelHeader: model,
+      bodyTopLevelKeys: Object.keys(requestBody),
+      inputKeys: Object.keys(input),
+      inputSummary,
+    });
+  }
+
+  generationLogCollector.log(sessionId, TAG, `Request: model=${model}, bodyKeys=${JSON.stringify(Object.keys(requestBody))}, inputKeys=${JSON.stringify(Object.keys(input))}`);
 
   const response = await fetch(PRUNA_PREDICTIONS_URL, {
     method: 'POST',
@@ -156,6 +179,18 @@ export async function submitPrediction(
 
     generationLogCollector.error(sessionId, TAG, `Prediction failed (${response.status}): ${errorMessage}`);
 
+    // __DEV__ detailed error logging
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.error(`[DEV] [${TAG}] Prediction FAILED:`, {
+        status: response.status,
+        statusText: response.statusText,
+        errorMessage,
+        rawBody: rawBody.substring(0, 500),
+        model,
+        inputKeys: Object.keys(input),
+      });
+    }
+
     const error = new Error(errorMessage);
     (error as Error & { statusCode?: number }).statusCode = response.status;
     throw error;
@@ -170,6 +205,15 @@ export async function submitPrediction(
     hasStatusUrl: !!result.status_url,
     status: result.status,
   });
+
+  // __DEV__ response logging
+  if (typeof __DEV__ !== 'undefined' && __DEV__) {
+    console.log(`[DEV] [${TAG}] Prediction SUCCESS in ${elapsed}ms:`, {
+      hasUri: !!extractUri(result),
+      status: result.status,
+      responseKeys: Object.keys(result),
+    });
+  }
 
   return result;
 }
