@@ -72,18 +72,25 @@ function buildImageEditInput(
   // Base64 format: data:image/jpeg;base64,{base64_string}
   let images: string[];
 
+  const ensureDataUriPrefix = (img: string): string => {
+    if (img.startsWith('http')) return img; // Already a URL
+    if (img.startsWith('data:')) return img; // Already has data URI prefix
+    // Add data URI prefix for raw base64
+    return `data:image/jpeg;base64,${img}`;
+  };
+
   if (Array.isArray(input.images)) {
     const validImages = (input.images as unknown[]).filter((img): img is string => typeof img === 'string');
     if (validImages.length === 0) {
       throw new Error("Image array is empty or contains no valid strings for p-image-edit.");
     }
-    images = validImages; // Keep data URI prefix for base64 images
+    images = validImages.map(ensureDataUriPrefix);
   } else if (typeof input.image === 'string') {
-    images = [input.image as string]; // Keep data URI prefix for base64 images
+    images = [ensureDataUriPrefix(input.image as string)];
   } else if (typeof input.image_url === 'string') {
-    images = [input.image_url as string]; // Keep data URI prefix for base64 images
+    images = [ensureDataUriPrefix(input.image_url as string)];
   } else if (Array.isArray(input.image_urls)) {
-    images = input.image_urls as string[]; // Keep data URI prefix for base64 images
+    images = (input.image_urls as string[]).map(ensureDataUriPrefix);
   } else {
     throw new Error("Image is required for p-image-edit. Provide 'image', 'images', 'image_url', or 'image_urls'.");
   }
