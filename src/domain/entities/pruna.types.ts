@@ -79,12 +79,18 @@ export interface PrunaPredictionInput {
   readonly aspect_ratio?: PrunaAspectRatio;
   readonly image?: string;
   readonly images?: readonly string[];
+  readonly reference_image?: string;
+  /** Audio file for p-video (base64 or URL). When provided, duration is determined by audio length. */
+  readonly audio?: string;
   readonly duration?: number;
   readonly resolution?: PrunaResolution;
   readonly fps?: number;
   readonly draft?: boolean;
   readonly prompt_upsampling?: boolean;
   readonly seed?: number;
+  readonly disable_safety_checker?: boolean;
+  readonly width?: number;
+  readonly height?: number;
 }
 
 /**

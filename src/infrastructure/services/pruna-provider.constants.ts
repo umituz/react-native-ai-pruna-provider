@@ -79,5 +79,5 @@ export const P_VIDEO_DEFAULTS = {
   promptUpsampling: true,
 } as const;
 
-/** Default aspect ratio for all models */
-export const DEFAULT_ASPECT_RATIO = '16:9' as const;
+/** Default aspect ratio — 1:1 is neutral for portrait/landscape input photos */
+export const DEFAULT_ASPECT_RATIO = '1:1' as const;

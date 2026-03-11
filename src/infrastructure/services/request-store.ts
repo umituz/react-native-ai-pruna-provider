@@ -16,8 +16,8 @@ const STORE_KEY = "__PRUNA_PROVIDER_REQUESTS__";
 const TIMER_KEY = "__PRUNA_PROVIDER_CLEANUP_TIMER__";
 type RequestStore = Map<string, ActiveRequest>;
 
-const CLEANUP_INTERVAL = 60000;
-const MAX_REQUEST_AGE = 300000;
+const CLEANUP_INTERVAL = 60_000;
+const MAX_REQUEST_AGE = 3_660_000; // 61 min — must exceed max allowed timeout (1 hour)
 
 function getCleanupTimer(): ReturnType<typeof setInterval> | null {
   const globalObj = globalThis as Record<string, unknown>;

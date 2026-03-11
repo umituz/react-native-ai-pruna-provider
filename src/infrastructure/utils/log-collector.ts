@@ -25,10 +25,19 @@ interface Session {
 
 let sessionCounter = 0;
 
+/** Max concurrent sessions before auto-evicting oldest */
+const MAX_SESSIONS = 50;
+
 class GenerationLogCollector {
   private sessions = new Map<string, Session>();
 
   startSession(): string {
+    // Evict oldest sessions if limit exceeded
+    if (this.sessions.size >= MAX_SESSIONS) {
+      const oldestKey = this.sessions.keys().next().value;
+      if (oldestKey) this.sessions.delete(oldestKey);
+    }
+
     const id = `pruna_session_${++sessionCounter}_${Date.now()}`;
     this.sessions.set(id, { startTime: Date.now(), entries: [] });
     return id;

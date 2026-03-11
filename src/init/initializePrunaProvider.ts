@@ -12,9 +12,11 @@ import { prunaProvider } from '../infrastructure/services';
  */
 export function initializePrunaProvider(config: {
   apiKey: string | undefined;
+  /** When true (default), sets this provider as the active/default provider */
+  setAsActive?: boolean;
 }): boolean {
   try {
-    const { apiKey } = config;
+    const { apiKey, setAsActive = true } = config;
 
     if (!apiKey) {
       return false;
@@ -25,7 +27,9 @@ export function initializePrunaProvider(config: {
     if (!providerRegistry.hasProvider(prunaProvider.providerId)) {
       providerRegistry.register(prunaProvider);
     }
-    providerRegistry.setActiveProvider(prunaProvider.providerId);
+    if (setAsActive) {
+      providerRegistry.setActiveProvider(prunaProvider.providerId);
+    }
 
     return true;
   } catch (error) {

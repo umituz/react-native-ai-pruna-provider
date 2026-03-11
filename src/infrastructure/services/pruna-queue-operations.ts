@@ -5,7 +5,8 @@
 
 import type { PrunaModelId } from "../../domain/entities/pruna.types";
 import type { JobSubmission, JobStatus } from "../../domain/types";
-import { submitPrediction, extractUri } from "./pruna-api-client";
+import { submitPrediction, extractUri, resolveUri } from "./pruna-api-client";
+import { PRUNA_BASE_URL } from "./pruna-provider.constants";
 import { buildModelInput } from "./pruna-input-builder";
 import { generationLogCollector } from "../utils/log-collector";
 
@@ -62,7 +63,7 @@ export async function getJobStatus(
   statusUrl: string,
   apiKey: string,
 ): Promise<JobStatus> {
-  const fullUrl = statusUrl.startsWith('http') ? statusUrl : `https://api.pruna.ai${statusUrl}`;
+  const fullUrl = statusUrl.startsWith('http') ? statusUrl : `${PRUNA_BASE_URL}${statusUrl}`;
 
   const response = await fetch(fullUrl, {
     headers: { 'apikey': apiKey },
@@ -83,9 +84,11 @@ export async function getJobStatus(
   }
 
   if (typedData.status === 'failed') {
+    const errorMessage = typedData.error || "Generation failed during processing.";
     return {
       status: "FAILED",
       requestId: statusUrl,
+      logs: [{ message: errorMessage, level: "error" }],
     };
   }
 
@@ -104,7 +107,7 @@ export async function getJobResult<T = unknown>(
   statusUrl: string,
   apiKey: string,
 ): Promise<T> {
-  const fullUrl = statusUrl.startsWith('http') ? statusUrl : `https://api.pruna.ai${statusUrl}`;
+  const fullUrl = statusUrl.startsWith('http') ? statusUrl : `${PRUNA_BASE_URL}${statusUrl}`;
 
   const response = await fetch(fullUrl, {
     headers: { 'apikey': apiKey },
@@ -126,6 +129,5 @@ export async function getJobResult<T = unknown>(
     throw new Error("Result not ready or extraction failed.");
   }
 
-  const resolvedUri = uri.startsWith('/') ? `https://api.pruna.ai${uri}` : uri;
-  return { url: resolvedUri } as T;
+  return { url: resolveUri(uri) } as T;
 }

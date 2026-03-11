@@ -86,7 +86,11 @@ export class PrunaProvider implements IAIProvider {
     const prunaModel = this.validateModel(model);
     const sessionId = generationLogCollector.startSession();
     generationLogCollector.log(sessionId, 'pruna-provider', `submitJob() for model: ${model}`);
-    return queueOps.submitJob(prunaModel, input, apiKey, sessionId);
+    try {
+      return await queueOps.submitJob(prunaModel, input, apiKey, sessionId);
+    } finally {
+      generationLogCollector.endSession(sessionId);
+    }
   }
 
   async getJobStatus(model: string, requestId: string): Promise<JobStatus> {
@@ -119,6 +123,7 @@ export class PrunaProvider implements IAIProvider {
     const existing = getExistingRequest<T>(key);
     if (existing) {
       generationLogCollector.log(sessionId, TAG, `Dedup hit — returning existing request`);
+      generationLogCollector.endSession(sessionId); // Clean up unused session
       return existing.promise;
     }
 
@@ -147,6 +152,7 @@ export class PrunaProvider implements IAIProvider {
       .catch((error) => {
         const totalElapsed = Date.now() - totalStart;
         generationLogCollector.error(sessionId, TAG, `Generation FAILED in ${totalElapsed}ms: ${error instanceof Error ? error.message : String(error)}`);
+        generationLogCollector.endSession(sessionId); // Clean up session on error
         rejectPromise(error);
       })
       .finally(() => {
@@ -169,14 +175,19 @@ export class PrunaProvider implements IAIProvider {
 
     const signal = options?.signal;
     if (signal?.aborted) {
+      generationLogCollector.endSession(sessionId);
       throw new Error("Request cancelled by user");
     }
 
-    const result = await handlePrunaRun<T>(prunaModel, input, apiKey, sessionId, options);
-    if (result && typeof result === 'object') {
-      Object.defineProperty(result, '__providerSessionId', { value: sessionId, enumerable: false });
+    try {
+      const result = await handlePrunaRun<T>(prunaModel, input, apiKey, sessionId, options);
+      if (result && typeof result === 'object') {
+        Object.defineProperty(result, '__providerSessionId', { value: sessionId, enumerable: false });
+      }
+      return result;
+    } finally {
+      generationLogCollector.endSession(sessionId);
     }
-    return result;
   }
 
   reset(): void {

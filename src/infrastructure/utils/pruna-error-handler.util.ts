@@ -15,6 +15,11 @@ export function mapPrunaError(error: unknown): PrunaErrorInfo {
   const stack = error instanceof Error ? error.stack : undefined;
   const statusCode = (error as Error & { statusCode?: number }).statusCode;
 
+  // AbortError from signal.abort() during fetch — treat as user cancellation
+  if (error instanceof Error && error.name === 'AbortError') {
+    return buildErrorInfo(PrunaErrorType.UNKNOWN, "error.pruna.cancelled", false, originalError, originalErrorName, stack);
+  }
+
   // HTTP status code mapping
   if (statusCode !== undefined) {
     return mapStatusCode(statusCode, originalError, originalErrorName, stack);

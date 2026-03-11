@@ -36,6 +36,13 @@ export interface AiProviderInitModuleConfig {
   dependsOn?: string[];
 
   /**
+   * Whether to set Pruna as the active provider after initialization.
+   * When false, registers the provider but doesn't make it active.
+   * @default true
+   */
+  setAsActive?: boolean;
+
+  /**
    * Optional callback called after provider is initialized
    */
   onInitialized?: () => void;
@@ -51,6 +58,7 @@ export function createAiProviderInitModule(
     getApiKey,
     critical = false,
     dependsOn = ['firebase'],
+    setAsActive = true,
     onInitialized,
   } = config;
 
@@ -58,12 +66,12 @@ export function createAiProviderInitModule(
     name: 'aiProviders',
     critical,
     dependsOn,
-    init: () => {
+    init: async () => {
       try {
         const apiKey = getApiKey();
 
         if (!apiKey) {
-          return Promise.resolve(false);
+          return false;
         }
 
         prunaProvider.initialize({ apiKey });
@@ -71,13 +79,15 @@ export function createAiProviderInitModule(
         if (!providerRegistry.hasProvider(prunaProvider.providerId)) {
           providerRegistry.register(prunaProvider);
         }
-        providerRegistry.setActiveProvider(prunaProvider.providerId);
+        if (setAsActive) {
+          providerRegistry.setActiveProvider(prunaProvider.providerId);
+        }
 
         if (onInitialized) {
           onInitialized();
         }
 
-        return Promise.resolve(true);
+        return true;
       } catch (error) {
         console.error('[AiProviderInitModule] Pruna initialization failed:', error);
         throw error;

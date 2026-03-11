@@ -28,3 +28,9 @@ export {
 
 export { generationLogCollector } from "./log-collector";
 export type { LogEntry } from "./log-collector";
+
+export { detectMimeType } from "./mime-detection.util";
+export {
+  MIME_TO_EXTENSION,
+  getExtensionForMime,
+} from "./constants/mime.constants";

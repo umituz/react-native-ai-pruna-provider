@@ -5,12 +5,12 @@
  * Each Pruna model has strict schema requirements:
  *   p-image:      { prompt, aspect_ratio? }
  *   p-image-edit: { images: string[], prompt, aspect_ratio? }
- *   p-video:      { image: string (URL), prompt, duration, resolution, fps, draft, aspect_ratio, prompt_upsampling }
+ *   p-video:      { image: string (URL), prompt, duration, resolution, fps, draft, aspect_ratio, prompt_upsampling, audio? }
  */
 
 import type { PrunaModelId, PrunaAspectRatio, PrunaResolution } from "../../domain/entities/pruna.types";
 import { P_VIDEO_DEFAULTS, DEFAULT_ASPECT_RATIO } from "./pruna-provider.constants";
-import { uploadImageToFiles, stripBase64Prefix } from "./pruna-api-client";
+import { uploadFileToStorage, stripBase64Prefix } from "./pruna-api-client";
 import { generationLogCollector } from "../utils/log-collector";
 
 const TAG = 'pruna-input-builder';
@@ -54,9 +54,10 @@ function buildImageInput(
 ): Record<string, unknown> {
   const payload: Record<string, unknown> = { prompt, aspect_ratio: aspectRatio };
 
-  if (input.seed !== undefined) {
-    payload.seed = input.seed;
-  }
+  if (input.seed !== undefined) payload.seed = input.seed;
+  if (input.disable_safety_checker !== undefined) payload.disable_safety_checker = input.disable_safety_checker;
+  if (input.width !== undefined) payload.width = input.width;
+  if (input.height !== undefined) payload.height = input.height;
 
   return payload;
 }
@@ -67,11 +68,15 @@ function buildImageEditInput(
   input: Record<string, unknown>,
   sessionId: string,
 ): Record<string, unknown> {
-  // p-image-edit expects images array
+  // p-image-edit expects images array (base64 or HTTPS URLs — file URIs resolved by ai-generation-content)
   let images: string[];
 
   if (Array.isArray(input.images)) {
-    images = (input.images as string[]).map(stripBase64Prefix);
+    const validImages = (input.images as unknown[]).filter((img): img is string => typeof img === 'string');
+    if (validImages.length === 0) {
+      throw new Error("Image array is empty or contains no valid strings for p-image-edit.");
+    }
+    images = validImages.map(stripBase64Prefix);
   } else if (typeof input.image === 'string') {
     images = [stripBase64Prefix(input.image as string)];
   } else if (typeof input.image_url === 'string') {
@@ -86,9 +91,10 @@ function buildImageEditInput(
 
   const payload: Record<string, unknown> = { images, prompt, aspect_ratio: aspectRatio };
 
-  if (input.seed !== undefined) {
-    payload.seed = input.seed;
-  }
+  if (input.seed !== undefined) payload.seed = input.seed;
+  if (input.disable_safety_checker !== undefined) payload.disable_safety_checker = input.disable_safety_checker;
+  if (input.width !== undefined) payload.width = input.width;
+  if (input.height !== undefined) payload.height = input.height;
 
   return payload;
 }
@@ -108,20 +114,36 @@ async function buildVideoInput(
 
   // Upload base64 to file storage if needed (p-video requires HTTPS URL)
   generationLogCollector.log(sessionId, TAG, 'p-video: preparing image for video generation...');
-  const fileUrl = await uploadImageToFiles(rawImage, apiKey, sessionId);
+  const fileUrl = await uploadFileToStorage(rawImage, apiKey, sessionId);
 
   const duration = (input.duration as number) ?? P_VIDEO_DEFAULTS.duration;
   const resolution = (input.resolution as PrunaResolution) ?? P_VIDEO_DEFAULTS.resolution;
   const draft = (input.draft as boolean) ?? P_VIDEO_DEFAULTS.draft;
 
-  return {
+  const fps = (input.fps as number) ?? P_VIDEO_DEFAULTS.fps;
+  const promptUpsampling = (input.prompt_upsampling as boolean) ?? P_VIDEO_DEFAULTS.promptUpsampling;
+
+  const payload: Record<string, unknown> = {
     image: fileUrl,
     prompt,
     duration,
     resolution,
-    fps: P_VIDEO_DEFAULTS.fps,
+    fps,
     draft,
     aspect_ratio: aspectRatio,
-    prompt_upsampling: P_VIDEO_DEFAULTS.promptUpsampling,
+    prompt_upsampling: promptUpsampling,
   };
+
+  // Handle audio input — upload to file storage if base64, pass URL if already remote
+  const rawAudio = input.audio as string | undefined;
+  if (rawAudio) {
+    generationLogCollector.log(sessionId, TAG, 'p-video: preparing audio for video generation...');
+    const audioUrl = await uploadFileToStorage(rawAudio, apiKey, sessionId);
+    payload.audio = audioUrl;
+    generationLogCollector.log(sessionId, TAG, 'p-video: audio attached — duration will be determined by audio length');
+  }
+
+  if (input.disable_safety_checker !== undefined) payload.disable_safety_checker = input.disable_safety_checker;
+
+  return payload;
 }

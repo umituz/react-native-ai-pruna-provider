@@ -27,5 +27,5 @@ export function isValidPrompt(value: unknown): value is string {
 }
 
 export function isValidTimeout(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 600000;
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 3600000;
 }

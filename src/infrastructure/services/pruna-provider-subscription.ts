@@ -64,7 +64,7 @@ async function singleSubscribeAttempt<T = unknown>(
     // Notify progress: IN_PROGRESS
     options?.onProgress?.({ progress: -1, status: "IN_PROGRESS" });
 
-    const response = await submitPrediction(model, modelInput, apiKey, sessionId);
+    const response = await submitPrediction(model, modelInput, apiKey, sessionId, signal);
     let uri = extractUri(response);
 
     // If no immediate result, poll for async result
@@ -112,11 +112,18 @@ async function singleSubscribeAttempt<T = unknown>(
       predictionPromise.finally(() => signal.removeEventListener("abort", handler));
     });
     promises.push(abortPromise);
+    // Prevent unhandled rejection if abort loses the race
+    abortPromise.catch(() => {});
 
     if (signal.aborted) {
       throw new Error("Request cancelled by user");
     }
   }
+
+  // Prevent unhandled rejections for promises that lose the race
+  // (e.g. timeout fires after abort wins → would cause React Native red screen)
+  predictionPromise.catch(() => {});
+  timeoutPromise.catch(() => {});
 
   const resultUrl = await Promise.race(promises) as string;
   const requestId = `pruna_${model}_${Date.now()}`;
@@ -205,7 +212,8 @@ export async function handlePrunaSubscription<T = unknown>(
     }
   }
 
-  throw lastError;
+  // Unreachable: loop always returns or throws. TypeScript safety net.
+  throw lastError instanceof Error ? lastError : new Error("Subscription failed after all retry attempts.");
 }
 
 /**
@@ -226,7 +234,7 @@ export async function handlePrunaRun<T = unknown>(
 
   try {
     const modelInput = await buildModelInput(model, input, apiKey, sessionId);
-    const response = await submitPrediction(model, modelInput, apiKey, sessionId);
+    const response = await submitPrediction(model, modelInput, apiKey, sessionId, options?.signal);
 
     let uri = extractUri(response);
 

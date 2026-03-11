@@ -19,12 +19,6 @@ export enum PrunaErrorType {
   UNKNOWN = "unknown",
 }
 
-export interface PrunaErrorCategory {
-  readonly type: PrunaErrorType;
-  readonly messageKey: string;
-  readonly retryable: boolean;
-}
-
 export interface PrunaErrorInfo {
   readonly type: PrunaErrorType;
   readonly messageKey: string;
@@ -35,18 +29,3 @@ export interface PrunaErrorInfo {
   readonly statusCode?: number;
 }
 
-export interface PrunaErrorMessages {
-  network?: string;
-  timeout?: string;
-  api_error?: string;
-  validation?: string;
-  content_policy?: string;
-  rate_limit?: string;
-  authentication?: string;
-  quota_exceeded?: string;
-  model_not_found?: string;
-  file_upload?: string;
-  polling_timeout?: string;
-  invalid_image?: string;
-  unknown?: string;
-}

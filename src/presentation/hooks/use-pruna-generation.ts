@@ -49,8 +49,10 @@ export function usePrunaGeneration<T = unknown>(
   const [error, setError] = useState<PrunaErrorInfo | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [requestId, setRequestId] = useState<string | null>(null);
 
   const stateManagerRef = useRef<PrunaGenerationStateManager<T> | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const optionsRef = useRef(options);
 
   useEffect(() => {
@@ -73,13 +75,13 @@ export function usePrunaGeneration<T = unknown>(
         stateManagerRef.current = null;
       }
 
-      if (prunaProvider.hasRunningRequest()) {
-        try {
-          prunaProvider.cancelCurrentRequest();
-        } catch (error) {
-          console.warn('[usePrunaGeneration] Error cancelling request on unmount:', error);
-        }
+      // Cancel this hook's active request on unmount
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
       }
+      // Also cancel the provider's internal request
+      prunaProvider.cancelCurrentRequest();
     };
   }, []);
 
@@ -88,10 +90,18 @@ export function usePrunaGeneration<T = unknown>(
       const stateManager = stateManagerRef.current;
       if (!stateManager || !stateManager.checkMounted()) return null;
 
+      // Cancel any previous in-flight request from this hook
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
       stateManager.setLastRequest(model, input);
       setIsLoading(true);
       setError(null);
       setData(null);
+      setRequestId(null);
       stateManager.setCurrentRequestId(null);
       setIsCancelling(false);
 
@@ -104,6 +114,11 @@ export function usePrunaGeneration<T = unknown>(
               stateManager.getCurrentRequestId()
             );
             stateManager.handleQueueUpdate(prunaStatus);
+
+            // Update reactive requestId from queue status
+            if (status.requestId) {
+              setRequestId(status.requestId);
+            }
           },
         });
 
@@ -121,6 +136,10 @@ export function usePrunaGeneration<T = unknown>(
           setIsLoading(false);
           setIsCancelling(false);
         }
+        // Clean up controller reference
+        if (abortControllerRef.current === controller) {
+          abortControllerRef.current = null;
+        }
       }
     },
     []
@@ -137,10 +156,13 @@ export function usePrunaGeneration<T = unknown>(
   }, [generate]);
 
   const cancel = useCallback(() => {
-    if (prunaProvider.hasRunningRequest()) {
+    if (abortControllerRef.current) {
       setIsCancelling(true);
-      prunaProvider.cancelCurrentRequest();
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
     }
+    // Propagate cancel to the provider's internal AbortController
+    prunaProvider.cancelCurrentRequest();
   }, []);
 
   const reset = useCallback(() => {
@@ -149,10 +171,9 @@ export function usePrunaGeneration<T = unknown>(
     setError(null);
     setIsLoading(false);
     setIsCancelling(false);
+    setRequestId(null);
     stateManagerRef.current?.clearLastRequest();
   }, [cancel]);
-
-  const requestId = stateManagerRef.current?.getCurrentRequestId() ?? null;
 
   return {
     data,

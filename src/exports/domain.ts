@@ -23,9 +23,7 @@ export type {
 
 export { PrunaErrorType } from "../domain/entities/error.types";
 export type {
-  PrunaErrorCategory,
   PrunaErrorInfo,
-  PrunaErrorMessages,
 } from "../domain/entities/error.types";
 
 export type {
