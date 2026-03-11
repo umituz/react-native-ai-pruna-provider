@@ -129,6 +129,9 @@ export async function submitPrediction(
 
   const startTime = Date.now();
 
+  const requestBody = { input };
+  generationLogCollector.log(sessionId, TAG, `Request body: ${JSON.stringify(requestBody).substring(0, 200)}...`);
+
   const response = await fetch(PRUNA_PREDICTIONS_URL, {
     method: 'POST',
     headers: {
@@ -137,7 +140,7 @@ export async function submitPrediction(
       'Try-Sync': 'true',
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ input }),
+    body: JSON.stringify(requestBody),
     signal,
   });
 
