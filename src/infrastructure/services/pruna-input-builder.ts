@@ -68,7 +68,8 @@ function buildImageEditInput(
   input: Record<string, unknown>,
   sessionId: string,
 ): Record<string, unknown> {
-  // p-image-edit expects images array (base64 or HTTPS URLs — file URIs resolved by ai-generation-content)
+  // p-image-edit expects images array (base64 with data URI prefix or HTTPS URLs)
+  // Base64 format: data:image/jpeg;base64,{base64_string}
   let images: string[];
 
   if (Array.isArray(input.images)) {
@@ -76,13 +77,13 @@ function buildImageEditInput(
     if (validImages.length === 0) {
       throw new Error("Image array is empty or contains no valid strings for p-image-edit.");
     }
-    images = validImages.map(stripBase64Prefix);
+    images = validImages; // Keep data URI prefix for base64 images
   } else if (typeof input.image === 'string') {
-    images = [stripBase64Prefix(input.image as string)];
+    images = [input.image as string]; // Keep data URI prefix for base64 images
   } else if (typeof input.image_url === 'string') {
-    images = [stripBase64Prefix(input.image_url as string)];
+    images = [input.image_url as string]; // Keep data URI prefix for base64 images
   } else if (Array.isArray(input.image_urls)) {
-    images = (input.image_urls as string[]).map(stripBase64Prefix);
+    images = input.image_urls as string[]; // Keep data URI prefix for base64 images
   } else {
     throw new Error("Image is required for p-image-edit. Provide 'image', 'images', 'image_url', or 'image_urls'.");
   }
