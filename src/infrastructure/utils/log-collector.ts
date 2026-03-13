@@ -34,8 +34,20 @@ class GenerationLogCollector {
   startSession(): string {
     // Evict oldest sessions if limit exceeded
     if (this.sessions.size >= MAX_SESSIONS) {
-      const oldestKey = this.sessions.keys().next().value;
-      if (oldestKey) this.sessions.delete(oldestKey);
+      // Find and remove the oldest session by startTime (LRU eviction)
+      let oldestKey: string | null = null;
+      let oldestTime = Date.now();
+
+      for (const [key, session] of this.sessions.entries()) {
+        if (session.startTime < oldestTime) {
+          oldestTime = session.startTime;
+          oldestKey = key;
+        }
+      }
+
+      if (oldestKey) {
+        this.sessions.delete(oldestKey);
+      }
     }
 
     const id = `pruna_session_${++sessionCounter}_${Date.now()}`;

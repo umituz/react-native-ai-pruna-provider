@@ -105,9 +105,12 @@ export function usePrunaGeneration<T = unknown>(
       stateManager.setCurrentRequestId(null);
       setIsCancelling(false);
 
+      // Capture current timeout value at the start of generation
+      const timeoutMs = optionsRef.current?.timeoutMs;
+
       try {
         const result = await prunaProvider.subscribe<T>(model, input, {
-          timeoutMs: optionsRef.current?.timeoutMs,
+          timeoutMs,
           onQueueUpdate: (status: JobStatus) => {
             const prunaStatus = convertJobStatusToPrunaQueueStatus(
               status,

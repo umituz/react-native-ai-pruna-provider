@@ -4,7 +4,7 @@
  */
 
 import { providerRegistry } from '@umituz/react-native-ai-generation-content';
-import { prunaProvider } from '../infrastructure/services';
+import { prunaProvider } from '../infrastructure/services/pruna-provider';
 
 /**
  * InitModule interface (from @umituz/react-native-design-system)

@@ -14,14 +14,13 @@
 import type { PrunaModelId, PrunaPredictionResponse, PrunaFileUploadResponse } from "../../domain/entities/pruna.types";
 import { PRUNA_BASE_URL, PRUNA_PREDICTIONS_URL, PRUNA_FILES_URL, UPLOAD_CONFIG } from "./pruna-provider.constants";
 import { generationLogCollector } from "../utils/log-collector";
-import { detectMimeType } from "../utils/mime-detection.util";
-import { getExtensionForMime } from "../utils/constants/mime.constants";
+import { bytesToKB, calculateElapsedMs, createStringPreview } from "../utils/calculation.utils";
 
 const TAG = 'pruna-api';
 
 /**
  * Upload a base64 file (image or audio) to Pruna's file storage.
- * p-video requires file URLs (not raw base64).
+ * Uses design system filesystem for React Native compatibility.
  * Returns the HTTPS file URL to use in predictions.
  */
 export async function uploadFileToStorage(
@@ -29,39 +28,63 @@ export async function uploadFileToStorage(
   apiKey: string,
   sessionId: string,
 ): Promise<string> {
+  generationLogCollector.log(sessionId, TAG, `>>> uploadFileToStorage START`, {
+    dataLength: base64Data.length,
+    startsWithHttp: base64Data.startsWith('http'),
+    startsWithDataUri: base64Data.startsWith('data:'),
+  });
+
   // Guard: empty or whitespace-only input
   if (!base64Data || !base64Data.trim()) {
+    generationLogCollector.error(sessionId, TAG, 'File data validation FAILED: empty input');
     throw new Error("File data is empty. Provide a base64 string or URL.");
   }
 
   // Already a URL — return as-is
   if (base64Data.startsWith('http')) {
-    generationLogCollector.log(sessionId, TAG, 'File already a URL, skipping upload');
+    generationLogCollector.log(sessionId, TAG, 'File already a URL, skipping upload', {
+      url: base64Data.substring(0, 80) + '...',
+    });
     return base64Data;
   }
 
   generationLogCollector.log(sessionId, TAG, 'Uploading file to Pruna storage...');
 
-  // Strip data URI prefix if present
-  const raw = base64Data.includes('base64,') ? base64Data.split('base64,')[1] : base64Data;
-
-  let binaryStr: string;
-  try {
-    binaryStr = atob(raw);
-  } catch {
-    throw new Error("Invalid file format. Please provide base64 or a valid URL.");
+  // __DEV__ log input data size
+  if (typeof __DEV__ !== 'undefined' && __DEV__) {
+    const dataSizeKB = bytesToKB(base64Data.length);
+    console.log(`[DEV] [${TAG}] File upload input:`, {
+      dataSizeKB,
+      startsWithDataUri: base64Data.startsWith('data:'),
+      preview: createStringPreview(base64Data, 50),
+    });
   }
 
-  const bytes = new Uint8Array(binaryStr.length);
-  for (let i = 0; i < binaryStr.length; i++) {
-    bytes[i] = binaryStr.charCodeAt(i);
-  }
+  // Strip data URI prefix if present to get raw base64
+  const rawBase64 = base64Data.includes('base64,')
+    ? base64Data.split('base64,')[1]
+    : base64Data;
 
-  const mime = detectMimeType(bytes);
-  const ext = getExtensionForMime(mime);
-  const blob = new Blob([bytes], { type: mime });
-  const formData = new FormData();
-  formData.append('content', blob, `upload.${ext}`);
+  generationLogCollector.log(sessionId, TAG, 'Base64 processing complete', {
+    originalLength: base64Data.length,
+    rawLength: rawBase64.length,
+    hadDataUriPrefix: base64Data.includes('base64,'),
+  });
+
+  // Use default JPEG MIME type (detectMimeType fails on base64)
+  const mimeType = 'image/jpeg';
+  const dataUri = `data:${mimeType};base64,${rawBase64}`;
+
+  generationLogCollector.log(sessionId, TAG, `Creating data URI for upload (${mimeType})...`);
+
+  // __DEV__ log upload details
+  if (typeof __DEV__ !== 'undefined' && __DEV__) {
+    console.log(`[DEV] [${TAG}] Data URI upload:`, {
+      mimeType,
+      base64Length: rawBase64.length,
+      dataUriPrefix: dataUri.substring(0, 50) + '...',
+    });
+  }
 
   const startTime = Date.now();
 
@@ -70,25 +93,153 @@ export async function uploadFileToStorage(
   const timeoutId = setTimeout(() => uploadController.abort(), UPLOAD_CONFIG.timeoutMs);
 
   try {
-    const response = await fetch(PRUNA_FILES_URL, {
+    // Create FormData with file object format (React Native compatible)
+    const formData = new FormData();
+
+    // React Native expects {uri, type, name} format for file uploads
+    const fileObject = {
+      uri: dataUri,
+      type: mimeType,
+      name: 'upload.jpg',
+    } as {
+      uri: string;
+      type: string;
+      name: string;
+    };
+
+    // Type cast for React Native FormData which accepts file objects
+    (formData as unknown as { append: (name: string, value: typeof fileObject) => void }).append('content', fileObject);
+
+    generationLogCollector.log(sessionId, TAG, 'FormData created', {
+      hasContent: formData.has('content'),
+      fileName: fileObject.name,
+      mimeType: fileObject.type,
+    });
+
+    // __DEV__ log FormData
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.log(`[DEV] [${TAG}] FormData created (file object format):`, {
+        hasContent: formData.has('content'),
+        fileObject: {
+          uri: fileObject.uri.substring(0, 50) + '...',
+          type: fileObject.type,
+          name: fileObject.name,
+        },
+      });
+    }
+
+    // __DEV__ log request details
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.log(`[DEV] [${TAG}] Sending upload request:`, {
+        url: PRUNA_FILES_URL,
+        method: 'POST',
+        hasContent: formData.has('content'),
+      });
+    }
+
+    const uploadStart = Date.now();
+    generationLogCollector.log(sessionId, TAG, 'Sending POST request to file storage...');
+
+    const uploadResponse = await fetch(PRUNA_FILES_URL, {
       method: 'POST',
       headers: { 'apikey': apiKey },
       body: formData,
       signal: uploadController.signal,
     });
 
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({ message: response.statusText }));
-      const errorMessage = (err as { message?: string }).message || `File upload error: ${response.status}`;
-      generationLogCollector.error(sessionId, TAG, `File upload failed: ${errorMessage}`);
+    // Clear timeout immediately after fetch completes to prevent race condition
+    clearTimeout(timeoutId);
+
+    const uploadElapsed = calculateElapsedMs(uploadStart);
+    generationLogCollector.log(sessionId, TAG, 'Upload response received', {
+      statusCode: uploadResponse.status,
+      statusText: uploadResponse.statusText,
+      elapsedMs: uploadElapsed,
+    });
+
+    if (!uploadResponse.ok) {
+      // Get response details for debugging
+      const statusText = uploadResponse.statusText;
+      const status = uploadResponse.status;
+
+      // Try to get error details from response
+      let rawBody = '';
+      let errorDetails: Record<string, unknown> = {};
+
+      try {
+        rawBody = await uploadResponse.text();
+        if (rawBody) {
+          try {
+            errorDetails = JSON.parse(rawBody) as Record<string, unknown>;
+          } catch {
+            // If not JSON, keep raw text for error message
+          }
+        }
+      } catch (bodyError) {
+        // If reading body fails, log the error but continue with status info
+        generationLogCollector.warn(sessionId, TAG, 'Failed to read error response body', {
+          error: bodyError instanceof Error ? bodyError.message : String(bodyError),
+        });
+      }
+
+      const errorMessage = (errorDetails as { message?: string; detail?: string; error?: string }).message ||
+                         (errorDetails as { detail?: string }).detail ||
+                         (errorDetails as { error?: string }).error ||
+                         rawBody ||
+                         `File upload error: ${status}`;
+
+      generationLogCollector.error(sessionId, TAG, `File upload FAILED`, {
+        status,
+        statusText,
+        errorMessage,
+        rawBodyLength: rawBody.length,
+      });
+
+      // __DEV__ detailed error logging
+      if (typeof __DEV__ !== 'undefined' && __DEV__) {
+        console.error(`[DEV] [${TAG}] File upload FAILED:`, {
+          status,
+          statusText,
+          errorMessage,
+          rawBody: rawBody.substring(0, 1000),
+          errorDetails,
+          url: PRUNA_FILES_URL,
+          formDataPreview: {
+            hasContent: formData.has('content'),
+            contentType: formData.get('content')?.toString().substring(0, 100) + '...',
+          },
+        });
+      }
+
       throw new Error(errorMessage);
     }
 
-    const data: PrunaFileUploadResponse = await response.json();
+    const data: PrunaFileUploadResponse = await uploadResponse.json();
     const fileUrl = data.urls?.get || `${PRUNA_FILES_URL}/${data.id}`;
 
-    const elapsed = Date.now() - startTime;
-    generationLogCollector.log(sessionId, TAG, `File upload completed in ${elapsed}ms → ${fileUrl}`);
+    const elapsed = calculateElapsedMs(startTime);
+    generationLogCollector.log(sessionId, TAG, `File upload completed in ${elapsed}ms`, {
+      fileId: data.id,
+      fileUrl: createStringPreview(fileUrl),
+      responseKeys: Object.keys(data),
+      hasUrlsGet: !!data.urls?.get,
+    });
+
+    // __DEV__ log response details
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.log(`[DEV] [${TAG}] File upload SUCCESS:`, {
+        elapsedMs: elapsed,
+        fileId: data.id,
+        fileUrl,
+        urls: data.urls,
+        responseKeys: Object.keys(data),
+      });
+    }
+
+    generationLogCollector.log(sessionId, TAG, `<<< uploadFileToStorage COMPLETE`, {
+      totalElapsedMs: elapsed,
+      resultUrl: fileUrl.substring(0, 60) + '...',
+    });
 
     return fileUrl;
   } catch (error) {
@@ -103,15 +254,6 @@ export async function uploadFileToStorage(
 }
 
 /**
- * Strip base64 data URI prefix, returning raw base64 string.
- * If input is already a URL, returns it unchanged.
- */
-export function stripBase64Prefix(image: string): string {
-  if (image.startsWith('http')) return image;
-  return image.includes('base64,') ? image.split('base64,')[1] : image;
-}
-
-/**
  * Submit a prediction to Pruna AI.
  * Uses Try-Sync header for potential immediate results.
  * Returns raw response (may contain result or polling URL).
@@ -123,8 +265,10 @@ export async function submitPrediction(
   sessionId: string,
   signal?: AbortSignal,
 ): Promise<PrunaPredictionResponse> {
-  generationLogCollector.log(sessionId, TAG, `Submitting prediction for model: ${model}`, {
+  generationLogCollector.log(sessionId, TAG, `>>> submitPrediction START`, {
+    model,
     inputKeys: Object.keys(input),
+    hasSignal: !!signal,
   });
 
   const startTime = Date.now();
@@ -150,11 +294,19 @@ export async function submitPrediction(
       bodyTopLevelKeys: Object.keys(requestBody),
       inputKeys: Object.keys(input),
       inputSummary,
+      requestBodySizeKB: bytesToKB(JSON.stringify(requestBody).length),
     });
   }
 
-  generationLogCollector.log(sessionId, TAG, `Request: model=${model}, bodyKeys=${JSON.stringify(Object.keys(requestBody))}, inputKeys=${JSON.stringify(Object.keys(input))}`);
+  generationLogCollector.log(sessionId, TAG, `Sending POST request...`, {
+    url: PRUNA_PREDICTIONS_URL,
+    model,
+    bodyKeys: Object.keys(requestBody),
+    inputKeys: Object.keys(input),
+    hasTrySync: true,
+  });
 
+  const requestStart = Date.now();
   const response = await fetch(PRUNA_PREDICTIONS_URL, {
     method: 'POST',
     headers: {
@@ -165,6 +317,14 @@ export async function submitPrediction(
     },
     body: JSON.stringify(requestBody),
     signal,
+  });
+  const requestElapsed = Date.now() - requestStart;
+
+  generationLogCollector.log(sessionId, TAG, `Response received`, {
+    statusCode: response.status,
+    statusText: response.statusText,
+    requestElapsedMs: requestElapsed,
+    ok: response.ok,
   });
 
   if (!response.ok) {
@@ -177,7 +337,12 @@ export async function submitPrediction(
       if (rawBody) errorMessage = rawBody;
     }
 
-    generationLogCollector.error(sessionId, TAG, `Prediction failed (${response.status}): ${errorMessage}`);
+    generationLogCollector.error(sessionId, TAG, `Prediction FAILED`, {
+      statusCode: response.status,
+      statusText: response.statusText,
+      errorMessage,
+      rawBodyLength: rawBody.length,
+    });
 
     // __DEV__ detailed error logging
     if (typeof __DEV__ !== 'undefined' && __DEV__) {
@@ -199,11 +364,14 @@ export async function submitPrediction(
   const elapsed = Date.now() - startTime;
   const result: PrunaPredictionResponse = await response.json();
 
-  generationLogCollector.log(sessionId, TAG, `Prediction response received in ${elapsed}ms`, {
+  generationLogCollector.log(sessionId, TAG, `Prediction response parsing complete`, {
+    elapsedMs: elapsed,
     hasUri: !!extractUri(result),
     hasGetUrl: !!result.get_url,
     hasStatusUrl: !!result.status_url,
     status: result.status,
+    hasId: !!result.id,
+    responseKeys: Object.keys(result),
   });
 
   // __DEV__ response logging
@@ -212,8 +380,14 @@ export async function submitPrediction(
       hasUri: !!extractUri(result),
       status: result.status,
       responseKeys: Object.keys(result),
+      resultId: result.id,
     });
   }
+
+  generationLogCollector.log(sessionId, TAG, `<<< submitPrediction COMPLETE`, {
+    totalElapsedMs: elapsed,
+    resultStatus: result.status,
+  });
 
   return result;
 }

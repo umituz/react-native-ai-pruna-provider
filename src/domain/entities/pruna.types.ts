@@ -47,28 +47,12 @@ export interface PrunaJobInput {
   readonly [key: string]: unknown;
 }
 
-export interface PrunaJobResult<T = unknown> {
-  readonly requestId: string;
-  readonly data: T;
-}
-
-export interface PrunaLogEntry {
-  readonly message: string;
-  readonly timestamp?: string;
-  readonly level?: "info" | "warn" | "error";
-}
-
 export type PrunaJobStatusType = "IN_QUEUE" | "IN_PROGRESS" | "COMPLETED" | "FAILED";
 
 export interface PrunaQueueStatus {
   readonly status: PrunaJobStatusType;
   readonly requestId: string;
-  readonly logs?: readonly PrunaLogEntry[];
-}
-
-export interface PrunaSubscribeOptions {
-  readonly onQueueUpdate?: (update: PrunaQueueStatus) => void;
-  readonly timeoutMs?: number;
+  readonly logs?: readonly { readonly message: string; readonly level?: "info" | "warn" | "error"; readonly timestamp?: string }[];
 }
 
 /**
@@ -97,6 +81,7 @@ export interface PrunaPredictionInput {
  * Pruna API prediction response (raw)
  */
 export interface PrunaPredictionResponse {
+  readonly id?: string;
   readonly generation_url?: string;
   readonly output?: { readonly url: string } | string | readonly string[];
   readonly data?: string;

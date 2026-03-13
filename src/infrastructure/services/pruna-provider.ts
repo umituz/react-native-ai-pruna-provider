@@ -14,7 +14,7 @@ import type {
   ImageFeatureInputData, VideoFeatureInputData,
 } from "../../domain/types";
 import type { PrunaModelId } from "../../domain/entities/pruna.types";
-import { DEFAULT_PRUNA_CONFIG, PRUNA_CAPABILITIES, VALID_PRUNA_MODELS } from "./pruna-provider.constants";
+import { PRUNA_CAPABILITIES, VALID_PRUNA_MODELS } from "./pruna-provider.constants";
 import { handlePrunaSubscription, handlePrunaRun } from "./pruna-provider-subscription";
 import * as queueOps from "./pruna-queue-operations";
 import { generationLogCollector } from "../utils/log-collector";
@@ -22,6 +22,8 @@ import type { LogEntry } from "../utils/log-collector";
 import {
   createRequestKey, getExistingRequest, storeRequest,
   removeRequest, cancelRequest, cancelAllRequests, hasActiveRequests,
+  storeRequestIdMapping, storeImmediateResultMapping,
+  getStatusUrlForRequestId, getResponseUrlForRequestId,
 } from "./request-store";
 
 export class PrunaProvider implements IAIProvider {
@@ -85,9 +87,33 @@ export class PrunaProvider implements IAIProvider {
     const apiKey = this.validateInit();
     const prunaModel = this.validateModel(model);
     const sessionId = generationLogCollector.startSession();
-    generationLogCollector.log(sessionId, 'pruna-provider', `submitJob() for model: ${model}`);
+    generationLogCollector.log(sessionId, 'pruna-provider', `submitJob() START model: ${model}`);
     try {
-      return await queueOps.submitJob(prunaModel, input, apiKey, sessionId);
+      const submission = await queueOps.submitJob(prunaModel, input, apiKey, sessionId);
+
+      // Log response type
+      if (submission.responseUrl) {
+        const responseUrlPreview = submission.responseUrl.length > 80
+          ? `${submission.responseUrl.substring(0, 80)}...`
+          : submission.responseUrl;
+        generationLogCollector.log(sessionId, 'pruna-provider', `submitJob() IMMEDIATE RESULT - requestId: ${submission.requestId}, responseUrl: ${responseUrlPreview}`);
+        // Store requestId -> responseUrl mapping for immediate results (already complete)
+        storeImmediateResultMapping(submission.requestId, submission.responseUrl, model);
+        generationLogCollector.log(sessionId, 'pruna-provider', `submitJob() Stored immediate result mapping: ${submission.requestId}`);
+      } else if (submission.statusUrl) {
+        const statusUrlPreview = submission.statusUrl.length > 80
+          ? `${submission.statusUrl.substring(0, 80)}...`
+          : submission.statusUrl;
+        generationLogCollector.log(sessionId, 'pruna-provider', `submitJob() ASYNC JOB - requestId: ${submission.requestId}, statusUrl: ${statusUrlPreview}`);
+        // Store requestId -> statusUrl mapping for async jobs (requires polling)
+        storeRequestIdMapping(submission.requestId, submission.statusUrl, model);
+        generationLogCollector.log(sessionId, 'pruna-provider', `submitJob() Stored async job mapping: ${submission.requestId}`);
+      } else {
+        generationLogCollector.warn(sessionId, 'pruna-provider', `submitJob() WARNING - No responseUrl or statusUrl in submission`);
+      }
+
+      generationLogCollector.log(sessionId, 'pruna-provider', `submitJob() COMPLETE - returning submission with requestId: ${submission.requestId}`);
+      return submission;
     } finally {
       generationLogCollector.endSession(sessionId);
     }
@@ -96,13 +122,82 @@ export class PrunaProvider implements IAIProvider {
   async getJobStatus(model: string, requestId: string): Promise<JobStatus> {
     const apiKey = this.validateInit();
     const prunaModel = this.validateModel(model);
-    return queueOps.getJobStatus(prunaModel, requestId, apiKey);
+    const sessionId = generationLogCollector.startSession();
+    generationLogCollector.log(sessionId, 'pruna-provider', `getJobStatus() START - model: ${model}, requestId: ${requestId}`);
+
+    try {
+      // Check if this is an immediate result (already completed)
+      const responseUrl = getResponseUrlForRequestId(requestId);
+      if (responseUrl) {
+        generationLogCollector.log(sessionId, 'pruna-provider', `getJobStatus() FOUND immediate result for ${requestId} - returning COMPLETED`);
+        generationLogCollector.endSession(sessionId);
+        // Result is already available
+        return {
+          status: "COMPLETED",
+          requestId,
+        };
+      }
+
+      // Look up statusUrl from requestId mapping (async job)
+      const statusUrl = getStatusUrlForRequestId(requestId);
+      if (statusUrl) {
+        generationLogCollector.log(sessionId, 'pruna-provider', `getJobStatus() FOUND async job for ${requestId} - polling statusUrl: ${statusUrl.substring(0, 80)}...`);
+        const result = await queueOps.getJobStatus(prunaModel, statusUrl, apiKey);
+        generationLogCollector.log(sessionId, 'pruna-provider', `getJobStatus() Poll result: ${result.status}`);
+        generationLogCollector.endSession(sessionId);
+        return result;
+      }
+
+      // Fallback: assume requestId is actually a statusUrl (for direct calls with statusUrl)
+      generationLogCollector.log(sessionId, 'pruna-provider', `getJobStatus() NO mapping found - treating ${requestId} as statusUrl directly`);
+      const result = await queueOps.getJobStatus(prunaModel, requestId, apiKey);
+      generationLogCollector.log(sessionId, 'pruna-provider', `getJobStatus() Direct poll result: ${result.status}`);
+      generationLogCollector.endSession(sessionId);
+      return result;
+    } catch (error) {
+      generationLogCollector.error(sessionId, 'pruna-provider', `getJobStatus() ERROR: ${error instanceof Error ? error.message : String(error)}`);
+      generationLogCollector.endSession(sessionId);
+      throw error;
+    }
   }
 
   async getJobResult<T = unknown>(model: string, requestId: string): Promise<T> {
     const apiKey = this.validateInit();
     const prunaModel = this.validateModel(model);
-    return queueOps.getJobResult<T>(prunaModel, requestId, apiKey);
+    const sessionId = generationLogCollector.startSession();
+    generationLogCollector.log(sessionId, 'pruna-provider', `getJobResult() START - model: ${model}, requestId: ${requestId}`);
+
+    try {
+      // Check if this is an immediate result (already completed)
+      const responseUrl = getResponseUrlForRequestId(requestId);
+      if (responseUrl) {
+        generationLogCollector.log(sessionId, 'pruna-provider', `getJobResult() FOUND immediate result for ${requestId} - returning output: ${responseUrl.substring(0, 80)}...`);
+        generationLogCollector.endSession(sessionId);
+        // Return the immediate result in expected format for extractResultUrl
+        return { output: responseUrl } as T;
+      }
+
+      // Look up statusUrl from requestId mapping (async job)
+      const statusUrl = getStatusUrlForRequestId(requestId);
+      if (statusUrl) {
+        generationLogCollector.log(sessionId, 'pruna-provider', `getJobResult() FOUND async job for ${requestId} - fetching from statusUrl: ${statusUrl.substring(0, 80)}...`);
+        const result = await queueOps.getJobResult<T>(prunaModel, statusUrl, apiKey);
+        generationLogCollector.log(sessionId, 'pruna-provider', `getJobResult() Fetch complete`);
+        generationLogCollector.endSession(sessionId);
+        return result;
+      }
+
+      // Fallback: assume requestId is actually a statusUrl (for direct calls with statusUrl)
+      generationLogCollector.log(sessionId, 'pruna-provider', `getJobResult() NO mapping found - treating ${requestId} as statusUrl directly`);
+      const result = await queueOps.getJobResult<T>(prunaModel, requestId, apiKey);
+      generationLogCollector.log(sessionId, 'pruna-provider', `getJobResult() Direct fetch complete`);
+      generationLogCollector.endSession(sessionId);
+      return result;
+    } catch (error) {
+      generationLogCollector.error(sessionId, 'pruna-provider', `getJobResult() ERROR: ${error instanceof Error ? error.message : String(error)}`);
+      generationLogCollector.endSession(sessionId);
+      throw error;
+    }
   }
 
   async subscribe<T = unknown>(
@@ -136,8 +231,14 @@ export class PrunaProvider implements IAIProvider {
       rejectPromise = reject;
     });
 
-    this.lastRequestKey = key;
+    // Store request BEFORE starting async operation to prevent race conditions
+    // Use the unique key for this specific request
     storeRequest(key, { promise, abortController, createdAt: Date.now() });
+
+    // Capture this request's key for cleanup in finally block
+    // This prevents race condition where rapid successive calls
+    // could cause cleanup to remove wrong request
+    const thisRequestKey = key;
 
     handlePrunaSubscription<T>(prunaModel, input, apiKey, sessionId, options, abortController.signal)
       .then((res) => {
@@ -157,7 +258,12 @@ export class PrunaProvider implements IAIProvider {
       })
       .finally(() => {
         try {
-          removeRequest(key);
+          // Only remove if this is still the correct request
+          // This prevents removing a newer request with same key
+          const storedRequest = getExistingRequest<T>(thisRequestKey);
+          if (storedRequest && storedRequest.promise === promise) {
+            removeRequest(thisRequestKey);
+          }
         } catch (cleanupError) {
           generationLogCollector.warn(sessionId, TAG, `Error removing request: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`);
         }

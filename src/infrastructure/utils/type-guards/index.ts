@@ -7,11 +7,13 @@ import { PrunaErrorType } from "../../../domain/entities/error.types";
 import { VALID_PRUNA_MODELS } from "../../services/pruna-provider.constants";
 
 export function isPrunaModelId(value: unknown): value is PrunaModelId {
-  return typeof value === 'string' && VALID_PRUNA_MODELS.includes(value as PrunaModelId);
+  if (typeof value !== 'string') return false;
+  return VALID_PRUNA_MODELS.includes(value as PrunaModelId);
 }
 
 export function isPrunaErrorType(value: unknown): value is PrunaErrorType {
-  return typeof value === 'string' && Object.values(PrunaErrorType).includes(value as PrunaErrorType);
+  if (typeof value !== 'string') return false;
+  return Object.values(PrunaErrorType).includes(value as PrunaErrorType);
 }
 
 export function isValidApiKey(value: unknown): value is string {

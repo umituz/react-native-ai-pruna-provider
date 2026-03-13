@@ -129,5 +129,5 @@ export async function getJobResult<T = unknown>(
     throw new Error("Result not ready or extraction failed.");
   }
 
-  return { url: resolveUri(uri) } as T;
+  return { output: resolveUri(uri) } as T;
 }

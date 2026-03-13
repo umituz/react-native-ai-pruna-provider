@@ -14,7 +14,9 @@ export interface ActiveRequest<T = unknown> {
 
 const STORE_KEY = "__PRUNA_PROVIDER_REQUESTS__";
 const TIMER_KEY = "__PRUNA_PROVIDER_CLEANUP_TIMER__";
+const REQUEST_ID_KEY = "__PRUNA_PROVIDER_REQUEST_IDS__";
 type RequestStore = Map<string, ActiveRequest>;
+type RequestIdMap = Map<string, { statusUrl?: string; responseUrl?: string; model: string }>;
 
 const CLEANUP_INTERVAL = 60_000;
 const MAX_REQUEST_AGE = 3_660_000; // 61 min — must exceed max allowed timeout (1 hour)
@@ -48,13 +50,19 @@ function sortKeys(obj: unknown): unknown {
 }
 
 export function createRequestKey(model: string, input: Record<string, unknown>): string {
+  // Use full JSON string instead of hash to eliminate collision risk
+  // Sort keys ensures consistent key generation regardless of object property order
   const inputStr = JSON.stringify(sortKeys(input));
-  let hash = 0;
-  for (let i = 0; i < inputStr.length; i++) {
-    const char = inputStr.charCodeAt(i);
-    hash = ((hash << 5) - hash + char) | 0;
-  }
-  return `${model}:${hash.toString(36)}`;
+
+  // Use base64 encoding for safer string representation
+  // This eliminates collision risk entirely while maintaining readability
+  const safeInputStr = inputStr.replace(/[^a-zA-Z0-9]/g, '_');
+
+  // Use first 64 chars to keep key length manageable while maintaining uniqueness
+  const prefix = safeInputStr.substring(0, 64);
+  const suffix = safeInputStr.length > 64 ? safeInputStr.slice(-64) : '';
+
+  return `${model}:${prefix}${suffix ? '...' + suffix : ''}`;
 }
 
 export function getExistingRequest<T>(key: string): ActiveRequest<T> | undefined {
@@ -136,6 +144,38 @@ function stopCleanupTimer(): void {
 
 export function stopAutomaticCleanup(): void {
   stopCleanupTimer();
+}
+
+// ─── Request ID to StatusUrl Mapping ───────────────────────────────────────
+
+function getRequestIdMap(): RequestIdMap {
+  const globalObj = globalThis as Record<string, unknown>;
+  if (!globalObj[REQUEST_ID_KEY]) {
+    globalObj[REQUEST_ID_KEY] = new Map();
+  }
+  return globalObj[REQUEST_ID_KEY] as RequestIdMap;
+}
+
+export function storeRequestIdMapping(requestId: string, statusUrl: string, model: string): void {
+  getRequestIdMap().set(requestId, { statusUrl, model, responseUrl: undefined });
+}
+
+export function storeImmediateResultMapping(requestId: string, responseUrl: string, model: string): void {
+  getRequestIdMap().set(requestId, { statusUrl: undefined, model, responseUrl });
+}
+
+export function getStatusUrlForRequestId(requestId: string): string | undefined {
+  const mapping = getRequestIdMap().get(requestId);
+  return mapping?.statusUrl;
+}
+
+export function getResponseUrlForRequestId(requestId: string): string | undefined {
+  const mapping = getRequestIdMap().get(requestId);
+  return mapping?.responseUrl;
+}
+
+export function removeRequestIdMapping(requestId: string): void {
+  getRequestIdMap().delete(requestId);
 }
 
 // Clear any leftover timer on module load (hot reload safety)

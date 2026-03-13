@@ -67,9 +67,23 @@ async function singleSubscribeAttempt<T = unknown>(
     const response = await submitPrediction(model, modelInput, apiKey, sessionId, signal);
     let uri = extractUri(response);
 
+    // __DEV__ log extracted URI
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.log(`[DEV] [${TAG}] Extracted URI:`, {
+        hasUri: !!uri,
+        uri: uri?.substring(0, 100) + '...',
+        uriFull: uri,
+        responseKeys: Object.keys(response),
+        status: response.status,
+      });
+    }
+
     // If no immediate result, poll for async result
     if (!uri && (response.get_url || response.status_url)) {
-      const pollUrl = (response.get_url || response.status_url)!;
+      const pollUrl = response.get_url || response.status_url;
+      if (!pollUrl) {
+        throw new Error("Pruna API response missing polling URL");
+      }
 
       generationLogCollector.log(sessionId, TAG, 'No immediate result — starting async polling...');
       options?.onQueueUpdate?.({
@@ -91,7 +105,18 @@ async function singleSubscribeAttempt<T = unknown>(
       throw new Error("Empty result from Pruna AI. Please try again.");
     }
 
-    return resolveUri(uri);
+    const resolvedUri = resolveUri(uri);
+
+    // __DEV__ log final result
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.log(`[DEV] [${TAG}] Returning URI:`, {
+        originalUri: uri,
+        resolvedUri,
+        resolvedUriPrefix: resolvedUri.substring(0, 100) + '...',
+      });
+    }
+
+    return resolvedUri;
   })();
 
   const timeoutPromise = new Promise<never>((_, reject) => {
@@ -135,9 +160,14 @@ async function singleSubscribeAttempt<T = unknown>(
     requestId,
   });
 
-  // Wrap result in expected format
-  // Pruna returns a URL string — wrap in a structure similar to FAL's response
-  const result = { url: resultUrl } as T;
+  // Wrap result in expected format for AI generation content
+  // Pruna returns a URL string — wrap in { images: [{ url }] } format
+  const result = { images: [{ url: resultUrl }] } as T;
+
+  generationLogCollector.log(sessionId, TAG, `Result wrapped for AI generation content`, {
+    format: 'images: [{ url }]',
+    urlPrefix: resultUrl.substring(0, 80) + '...',
+  });
 
   return { result, requestId };
 }
@@ -240,7 +270,10 @@ export async function handlePrunaRun<T = unknown>(
 
     // Poll if needed
     if (!uri && (response.get_url || response.status_url)) {
-      const pollUrl = (response.get_url || response.status_url)!;
+      const pollUrl = response.get_url || response.status_url;
+      if (!pollUrl) {
+        throw new Error("Pruna API response missing polling URL");
+      }
       uri = await pollForResult(
         pollUrl,
         apiKey,
@@ -260,7 +293,9 @@ export async function handlePrunaRun<T = unknown>(
     generationLogCollector.log(sessionId, runTag, `Run completed in ${elapsed}ms`);
 
     options?.onProgress?.({ progress: 100, status: "COMPLETED" as const });
-    return { url: resultUrl } as T;
+
+    // Wrap result in expected format for AI generation content
+    return { images: [{ url: resultUrl }] } as T;
   } catch (error) {
     const elapsed = Date.now() - startTime;
     const message = error instanceof Error ? error.message : String(error);

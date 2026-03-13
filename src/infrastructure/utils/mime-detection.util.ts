@@ -22,20 +22,23 @@ import {
  * Detect MIME type from raw binary bytes using magic number signatures.
  *
  * Detection order is intentional:
- *   1. JPEG (0xFF 0xD8) — checked before MP3 sync word to avoid false positives
+ *   1. JPEG (0xFF 0xD8) — MUST be checked before MP3 sync word
  *   2. PNG  (0x89 0x50)
  *   3. RIFF container → distinguish WAV vs WebP via subformat at offset 8-11
  *   4. MP3 with ID3 tag (0x49 0x44 0x33)
- *   5. MP3 sync word (0xFF 0xE_) — after JPEG to prevent overlap
+ *   5. MP3 sync word (0xFF 0xE_) — AFTER JPEG to prevent false positives!
  *   6. FLAC (fLaC)
  *   7. M4A/AAC (ftyp box at offset 4)
+ *
+ * CRITICAL: JPEG check must come before MP3 sync word check to avoid
+ * misclassifying JPEG files as MP3 (both start with 0xFF).
  */
 export function detectMimeType(bytes: Uint8Array): string {
   if (bytes.length < 4) return MIME_DEFAULT;
 
   // ── Image formats ───────────────────────────────────────
-  // JPEG: FF D8
-  if (bytes[0] === 0xFF && bytes[1] === 0xD8) return MIME_IMAGE_JPEG;
+  // JPEG: FF D8 FF (must check third byte to distinguish from MP3)
+  if (bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF) return MIME_IMAGE_JPEG;
 
   // PNG: 89 50 4E 47
   if (bytes[0] === 0x89 && bytes[1] === 0x50) return MIME_IMAGE_PNG;
@@ -56,8 +59,12 @@ export function detectMimeType(bytes: Uint8Array): string {
   // MP3 with ID3v2 tag: 49 44 33
   if (bytes[0] === 0x49 && bytes[1] === 0x44 && bytes[2] === 0x33) return MIME_AUDIO_MPEG;
 
-  // MP3 frame sync word: FF Ex/Fx (but not FF FF)
-  if (bytes[0] === 0xFF && (bytes[1] & 0xE0) === 0xE0 && bytes[1] !== 0xFF) return MIME_AUDIO_MPEG;
+  // MP3 frame sync word: FF Ex/Fx (but not FF FF, and must not be JPEG)
+  // CRITICAL: Check this AFTER JPEG to avoid false positives
+  if (bytes[0] === 0xFF && (bytes[1] & 0xE0) === 0xE0 && bytes[1] !== 0xFF) {
+    // Additional check: ensure this is not a JPEG by verifying bytes[2] is not 0xFF
+    if (bytes[2] !== 0xFF) return MIME_AUDIO_MPEG;
+  }
 
   // FLAC: 66 4C 61 43 ("fLaC")
   if (bytes[0] === 0x66 && bytes[1] === 0x4C && bytes[2] === 0x61 && bytes[3] === 0x43) return MIME_AUDIO_FLAC;

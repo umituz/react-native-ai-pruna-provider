@@ -3,7 +3,7 @@
  * Manages state and refs for Pruna generation operations
  */
 
-import type { PrunaJobInput, PrunaLogEntry, PrunaQueueStatus } from "../../domain/entities/pruna.types";
+import type { PrunaJobInput, PrunaQueueStatus } from "../../domain/entities/pruna.types";
 
 export interface GenerationState<T> {
   data: T | null;
@@ -71,7 +71,7 @@ export class PrunaGenerationStateManager<T> {
     const normalizedStatus: PrunaQueueStatus = {
       status: status.status,
       requestId: status.requestId ?? this.currentRequestId ?? "",
-      logs: status.logs?.map((log: PrunaLogEntry) => ({
+      logs: status.logs?.map((log: { message: string; level?: "info" | "warn" | "error"; timestamp?: string }) => ({
         message: log.message,
         level: log.level,
         timestamp: log.timestamp,

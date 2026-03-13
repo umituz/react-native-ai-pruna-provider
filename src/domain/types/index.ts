@@ -2,7 +2,6 @@
  * Domain Types Index
  */
 
-// Provider Types (imported from core package)
 export type {
   ImageFeatureType,
   VideoFeatureType,
