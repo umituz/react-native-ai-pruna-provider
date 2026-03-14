@@ -96,11 +96,16 @@ export async function uploadFileToStorage(
     // Create FormData with file object format (React Native compatible)
     const formData = new FormData();
 
+    // Generate unique filename with timestamp
+    const timestamp = Date.now();
+    const randomId = Math.random().toString(36).substring(2, 8);
+    const uniqueFileName = `vivoim_${timestamp}_${randomId}.jpg`;
+
     // React Native expects {uri, type, name} format for file uploads
     const fileObject = {
       uri: dataUri,
       type: mimeType,
-      name: 'upload.jpg',
+      name: uniqueFileName,
     } as {
       uri: string;
       type: string;
