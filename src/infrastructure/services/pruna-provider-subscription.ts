@@ -14,6 +14,7 @@ import { DEFAULT_PRUNA_CONFIG } from "./pruna-provider.constants";
 import { submitPrediction, extractUri, resolveUri, pollForResult } from "./pruna-api-client";
 import { buildModelInput } from "./pruna-input-builder";
 import { generationLogCollector } from "../utils/log-collector";
+import { calculateElapsedMs } from "../utils/calculation.utils";
 
 const TAG = 'pruna-subscription';
 
@@ -134,7 +135,20 @@ async function singleSubscribeAttempt<T = unknown>(
     const abortPromise = new Promise<never>((_, reject) => {
       const handler = () => reject(new Error("Request cancelled by user"));
       signal.addEventListener("abort", handler, { once: true });
-      predictionPromise.finally(() => signal.removeEventListener("abort", handler));
+
+      // Cleanup function to ensure listener is always removed
+      // once: true handles this automatically, but explicit cleanup is safer
+      const cleanup = () => {
+        try {
+          signal.removeEventListener("abort", handler);
+        } catch {
+          // Ignore errors if signal was already aborted or listener was removed
+        }
+      };
+
+      // Ensure cleanup happens regardless of promise outcome
+      predictionPromise.finally(cleanup);
+      timeoutPromise.finally(cleanup);
     });
     promises.push(abortPromise);
     // Prevent unhandled rejection if abort loses the race
@@ -150,7 +164,10 @@ async function singleSubscribeAttempt<T = unknown>(
   predictionPromise.catch(() => {});
   timeoutPromise.catch(() => {});
 
-  const resultUrl = await Promise.race(promises) as string;
+  const resultUrl = await Promise.race(promises);
+  if (typeof resultUrl !== 'string') {
+    throw new Error('Invalid result URL received from Pruna API');
+  }
   const requestId = `pruna_${model}_${Date.now()}`;
 
   // Notify progress: COMPLETED
@@ -196,9 +213,9 @@ export async function handlePrunaSubscription<T = unknown>(
     inputKeys: Object.keys(input),
   });
 
-  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 3600000) {
+  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > DEFAULT_PRUNA_CONFIG.maxTimeoutMs) {
     throw new Error(
-      `Invalid timeout: ${timeoutMs}ms. Must be a positive integer between 1 and 3600000ms (1 hour)`
+      `Invalid timeout: ${timeoutMs}ms. Must be a positive integer between 1 and ${DEFAULT_PRUNA_CONFIG.maxTimeoutMs}ms (1 hour)`
     );
   }
 
@@ -221,7 +238,7 @@ export async function handlePrunaSubscription<T = unknown>(
         model, input, apiKey, sessionId, options, signal, timeoutMs,
       );
 
-      const totalElapsed = Date.now() - overallStart;
+      const totalElapsed = calculateElapsedMs(overallStart);
       const suffix = attempt > 0 ? ` (succeeded on retry ${attempt})` : '';
       generationLogCollector.log(sessionId, TAG, `Subscription completed in ${totalElapsed}ms${suffix}. Request ID: ${result.requestId}`);
 
@@ -235,7 +252,7 @@ export async function handlePrunaSubscription<T = unknown>(
         continue;
       }
 
-      const totalElapsed = Date.now() - overallStart;
+      const totalElapsed = calculateElapsedMs(overallStart);
       const retryInfo = attempt > 0 ? ` after ${attempt + 1} attempts` : '';
       generationLogCollector.error(sessionId, TAG, `Subscription FAILED in ${totalElapsed}ms${retryInfo}: ${message}`);
       throw error instanceof Error ? error : new Error(message);
@@ -289,7 +306,7 @@ export async function handlePrunaRun<T = unknown>(
     }
 
     const resultUrl = resolveUri(uri);
-    const elapsed = Date.now() - startTime;
+    const elapsed = calculateElapsedMs(startTime);
     generationLogCollector.log(sessionId, runTag, `Run completed in ${elapsed}ms`);
 
     options?.onProgress?.({ progress: 100, status: "COMPLETED" as const });

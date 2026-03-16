@@ -38,6 +38,7 @@ export const DEFAULT_PRUNA_CONFIG = {
 
   /** Subscribe defaults */
   defaultTimeoutMs: 360_000,
+  maxTimeoutMs: 3_600_000, // 1 hour maximum timeout
 
   /** Polling configuration */
   pollIntervalMs: 3_000,

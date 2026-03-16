@@ -15,11 +15,21 @@ export interface ActiveRequest<T = unknown> {
 const STORE_KEY = "__PRUNA_PROVIDER_REQUESTS__";
 const TIMER_KEY = "__PRUNA_PROVIDER_CLEANUP_TIMER__";
 const REQUEST_ID_KEY = "__PRUNA_PROVIDER_REQUEST_IDS__";
+const REQUEST_KEY_CACHE_KEY = "__PRUNA_PROVIDER_KEY_CACHE__";
 type RequestStore = Map<string, ActiveRequest>;
 type RequestIdMap = Map<string, { statusUrl?: string; responseUrl?: string; model: string }>;
 
 const CLEANUP_INTERVAL = 60_000;
 const MAX_REQUEST_AGE = 3_660_000; // 61 min — must exceed max allowed timeout (1 hour)
+
+// Request key cache for performance optimization
+interface CacheEntry {
+  key: string;
+  timestamp: number;
+}
+type RequestKeyCache = Map<string, CacheEntry>;
+const MAX_CACHE_SIZE = 100;
+const CACHE_TTL = 300_000; // 5 minutes
 
 function getCleanupTimer(): ReturnType<typeof setInterval> | null {
   const globalObj = globalThis as Record<string, unknown>;
@@ -39,6 +49,14 @@ export function getRequestStore(): RequestStore {
   return globalObj[STORE_KEY] as RequestStore;
 }
 
+function getRequestKeyCache(): RequestKeyCache {
+  const globalObj = globalThis as Record<string, unknown>;
+  if (!globalObj[REQUEST_KEY_CACHE_KEY]) {
+    globalObj[REQUEST_KEY_CACHE_KEY] = new Map();
+  }
+  return globalObj[REQUEST_KEY_CACHE_KEY] as RequestKeyCache;
+}
+
 function sortKeys(obj: unknown): unknown {
   if (obj === null || typeof obj !== "object") return obj;
   if (Array.isArray(obj)) return obj.map(sortKeys);
@@ -49,7 +67,23 @@ function sortKeys(obj: unknown): unknown {
   return sorted;
 }
 
+function generateCacheKey(model: string, input: Record<string, unknown>): string {
+  // Fast hash using JSON.stringify (already sorted by sortKeys)
+  return `${model}:${JSON.stringify(input)}`;
+}
+
 export function createRequestKey(model: string, input: Record<string, unknown>): string {
+  const cacheKey = generateCacheKey(model, input);
+  const cache = getRequestKeyCache();
+  const now = Date.now();
+
+  // Check cache with TTL validation
+  const cached = cache.get(cacheKey);
+  if (cached && (now - cached.timestamp) < CACHE_TTL) {
+    return cached.key;
+  }
+
+  // Cache miss or expired - generate new key
   // Use full JSON string instead of hash to eliminate collision risk
   // Sort keys ensures consistent key generation regardless of object property order
   const inputStr = JSON.stringify(sortKeys(input));
@@ -62,7 +96,27 @@ export function createRequestKey(model: string, input: Record<string, unknown>):
   const prefix = safeInputStr.substring(0, 64);
   const suffix = safeInputStr.length > 64 ? safeInputStr.slice(-64) : '';
 
-  return `${model}:${prefix}${suffix ? '...' + suffix : ''}`;
+  const requestKey = `${model}:${prefix}${suffix ? '...' + suffix : ''}`;
+
+  // Store in cache with LRU eviction
+  cache.set(cacheKey, { key: requestKey, timestamp: now });
+
+  // Evict oldest entry if cache is too large
+  if (cache.size > MAX_CACHE_SIZE) {
+    const firstKey = cache.keys().next().value;
+    if (firstKey) {
+      cache.delete(firstKey);
+    }
+  }
+
+  return requestKey;
+}
+
+export function clearRequestKeyCache(): void {
+  const globalObj = globalThis as Record<string, unknown>;
+  if (globalObj[REQUEST_KEY_CACHE_KEY]) {
+    (globalObj[REQUEST_KEY_CACHE_KEY] as RequestKeyCache).clear();
+  }
 }
 
 export function getExistingRequest<T>(key: string): ActiveRequest<T> | undefined {
@@ -70,10 +124,7 @@ export function getExistingRequest<T>(key: string): ActiveRequest<T> | undefined
 }
 
 export function storeRequest<T>(key: string, request: ActiveRequest<T>): void {
-  getRequestStore().set(key, {
-    ...request,
-    createdAt: request.createdAt ?? Date.now(),
-  });
+  getRequestStore().set(key, request);
   ensureCleanupRunning();
 }
 

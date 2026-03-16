@@ -14,7 +14,7 @@
 import type { PrunaModelId, PrunaPredictionResponse, PrunaFileUploadResponse } from "../../domain/entities/pruna.types";
 import { PRUNA_BASE_URL, PRUNA_PREDICTIONS_URL, PRUNA_FILES_URL, UPLOAD_CONFIG } from "./pruna-provider.constants";
 import { generationLogCollector } from "../utils/log-collector";
-import { bytesToKB, calculateElapsedMs, createStringPreview } from "../utils/calculation.utils";
+import { bytesToKB, calculateElapsedMs, createStringPreview, DEFAULT_MAX_LENGTH } from "../utils/calculation.utils";
 
 const TAG = 'pruna-api';
 
@@ -56,19 +56,21 @@ export async function uploadFileToStorage(
     console.log(`[DEV] [${TAG}] File upload input:`, {
       dataSizeKB,
       startsWithDataUri: base64Data.startsWith('data:'),
-      preview: createStringPreview(base64Data, 50),
+      preview: createStringPreview(base64Data, DEFAULT_MAX_LENGTH),
     });
   }
 
   // Strip data URI prefix if present to get raw base64
-  const rawBase64 = base64Data.includes('base64,')
-    ? base64Data.split('base64,')[1]
+  // Use indexOf instead of split for better performance (no array allocation)
+  const base64Index = base64Data.indexOf('base64,');
+  const rawBase64 = base64Index !== -1
+    ? base64Data.substring(base64Index + 7) // 7 = 'base64,'.length
     : base64Data;
 
   generationLogCollector.log(sessionId, TAG, 'Base64 processing complete', {
     originalLength: base64Data.length,
     rawLength: rawBase64.length,
-    hadDataUriPrefix: base64Data.includes('base64,'),
+    hadDataUriPrefix: base64Index !== -1,
   });
 
   // Use default JPEG MIME type (detectMimeType fails on base64)
@@ -106,10 +108,6 @@ export async function uploadFileToStorage(
       uri: dataUri,
       type: mimeType,
       name: uniqueFileName,
-    } as {
-      uri: string;
-      type: string;
-      name: string;
     };
 
     // Type cast for React Native FormData which accepts file objects
@@ -220,10 +218,13 @@ export async function uploadFileToStorage(
     }
 
     const data: PrunaFileUploadResponse = await uploadResponse.json();
-    const fileUrl = data.urls?.get || `${PRUNA_FILES_URL}/${data.id}`;
+    if (!data.urls?.get && !data.id) {
+      throw new Error('File upload response missing both urls.get and id fields');
+    }
+    const fileUrl = data.urls?.get || (data.id ? `${PRUNA_FILES_URL}/${data.id}` : PRUNA_FILES_URL);
 
-    const elapsed = calculateElapsedMs(startTime);
-    generationLogCollector.log(sessionId, TAG, `File upload completed in ${elapsed}ms`, {
+    const totalElapsed = calculateElapsedMs(startTime);
+    generationLogCollector.log(sessionId, TAG, `File upload completed in ${totalElapsed}ms`, {
       fileId: data.id,
       fileUrl: createStringPreview(fileUrl),
       responseKeys: Object.keys(data),
@@ -233,7 +234,7 @@ export async function uploadFileToStorage(
     // __DEV__ log response details
     if (typeof __DEV__ !== 'undefined' && __DEV__) {
       console.log(`[DEV] [${TAG}] File upload SUCCESS:`, {
-        elapsedMs: elapsed,
+        elapsedMs: totalElapsed,
         fileId: data.id,
         fileUrl,
         urls: data.urls,
@@ -242,7 +243,7 @@ export async function uploadFileToStorage(
     }
 
     generationLogCollector.log(sessionId, TAG, `<<< uploadFileToStorage COMPLETE`, {
-      totalElapsedMs: elapsed,
+      totalElapsedMs: totalElapsed,
       resultUrl: fileUrl.substring(0, 60) + '...',
     });
 
@@ -323,7 +324,7 @@ export async function submitPrediction(
     body: JSON.stringify(requestBody),
     signal,
   });
-  const requestElapsed = Date.now() - requestStart;
+  const requestElapsed = calculateElapsedMs(requestStart);
 
   generationLogCollector.log(sessionId, TAG, `Response received`, {
     statusCode: response.status,
@@ -366,7 +367,7 @@ export async function submitPrediction(
     throw error;
   }
 
-  const elapsed = Date.now() - startTime;
+  const elapsed = calculateElapsedMs(startTime);
   const result: PrunaPredictionResponse = await response.json();
 
   generationLogCollector.log(sessionId, TAG, `Prediction response parsing complete`, {

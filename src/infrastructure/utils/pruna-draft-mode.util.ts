@@ -22,6 +22,7 @@
 
 import type { PrunaResolution } from "../../domain/entities/pruna.types";
 import { DRAFT_MODE_CONFIG, P_VIDEO_PRICING } from "../services/pruna-provider.constants";
+import { calculatePercentage } from "./calculation.utils";
 
 /**
  * Validates draft mode parameters for p-video
@@ -212,7 +213,7 @@ export function compareDraftModePricing(
   const normalPrice = getPricingPerSecond(resolution, false) * duration;
   const draftPrice = getPricingPerSecond(resolution, true) * duration;
   const savings = normalPrice - draftPrice;
-  const discountPercent = Math.round((savings / normalPrice) * 100);
+  const discountPercent = calculatePercentage(savings, normalPrice, 0);
 
   return {
     normalPrice,

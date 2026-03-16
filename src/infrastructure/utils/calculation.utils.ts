@@ -3,6 +3,14 @@
  * Centralized calculation functions for consistent and reusable operations
  */
 
+import { DEFAULT_PRUNA_CONFIG } from "../services/pruna-provider.constants";
+
+/** Maximum timeout value (1 hour) - exported for validation functions */
+export const MAX_TIMEOUT_MS = DEFAULT_PRUNA_CONFIG.maxTimeoutMs;
+
+/** Default maximum length for string previews and truncation */
+export const DEFAULT_MAX_LENGTH = 80;
+
 /**
  * Converts bytes to kilobytes (KB)
  */
@@ -38,7 +46,7 @@ export function formatElapsedMs(ms: number): string {
 /**
  * Creates a preview of a string by truncating and adding ellipsis
  */
-export function createStringPreview(str: string, maxLength: number = 80): string {
+export function createStringPreview(str: string, maxLength: number = DEFAULT_MAX_LENGTH): string {
   if (str.length <= maxLength) return str;
   return `${str.substring(0, maxLength)}...`;
 }
@@ -86,7 +94,7 @@ export function isValidTimeout(timeoutMs: number): boolean {
   return (
     Number.isInteger(timeoutMs) &&
     timeoutMs > 0 &&
-    timeoutMs <= 3600000 // Max 1 hour
+    timeoutMs <= MAX_TIMEOUT_MS
   );
 }
 

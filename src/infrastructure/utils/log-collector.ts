@@ -30,21 +30,12 @@ const MAX_SESSIONS = 50;
 
 class GenerationLogCollector {
   private sessions = new Map<string, Session>();
+  private sessionQueue: string[] = []; // FIFO queue for O(1) eviction
 
   startSession(): string {
-    // Evict oldest sessions if limit exceeded
-    if (this.sessions.size >= MAX_SESSIONS) {
-      // Find and remove the oldest session by startTime (LRU eviction)
-      let oldestKey: string | null = null;
-      let oldestTime = Date.now();
-
-      for (const [key, session] of this.sessions.entries()) {
-        if (session.startTime < oldestTime) {
-          oldestTime = session.startTime;
-          oldestKey = key;
-        }
-      }
-
+    // Evict oldest session if limit exceeded (O(1) operation)
+    if (this.sessionQueue.length >= MAX_SESSIONS) {
+      const oldestKey = this.sessionQueue.shift();
       if (oldestKey) {
         this.sessions.delete(oldestKey);
       }
@@ -52,6 +43,7 @@ class GenerationLogCollector {
 
     const id = `pruna_session_${++sessionCounter}_${Date.now()}`;
     this.sessions.set(id, { startTime: Date.now(), entries: [] });
+    this.sessionQueue.push(id);
     return id;
   }
 
@@ -76,6 +68,13 @@ class GenerationLogCollector {
     if (!session) return [];
     const entries = [...session.entries];
     this.sessions.delete(sessionId);
+
+    // Remove from queue as well
+    const queueIndex = this.sessionQueue.indexOf(sessionId);
+    if (queueIndex !== -1) {
+      this.sessionQueue.splice(queueIndex, 1);
+    }
+
     return entries;
   }
 

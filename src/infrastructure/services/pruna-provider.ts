@@ -18,6 +18,7 @@ import { PRUNA_CAPABILITIES, VALID_PRUNA_MODELS } from "./pruna-provider.constan
 import { handlePrunaSubscription, handlePrunaRun } from "./pruna-provider-subscription";
 import * as queueOps from "./pruna-queue-operations";
 import { generationLogCollector } from "../utils/log-collector";
+import { calculateElapsedMs } from "../utils/calculation.utils";
 import type { LogEntry } from "../utils/log-collector";
 import {
   createRequestKey, getExistingRequest, storeRequest,
@@ -235,6 +236,9 @@ export class PrunaProvider implements IAIProvider {
     // Use the unique key for this specific request
     storeRequest(key, { promise, abortController, createdAt: Date.now() });
 
+    // Track this as the current request for cancellation
+    this.lastRequestKey = key;
+
     // Capture this request's key for cleanup in finally block
     // This prevents race condition where rapid successive calls
     // could cause cleanup to remove wrong request
@@ -242,7 +246,7 @@ export class PrunaProvider implements IAIProvider {
 
     handlePrunaSubscription<T>(prunaModel, input, apiKey, sessionId, options, abortController.signal)
       .then((res) => {
-        const totalElapsed = Date.now() - totalStart;
+        const totalElapsed = calculateElapsedMs(totalStart);
         generationLogCollector.log(sessionId, TAG, `Generation SUCCESS in ${totalElapsed}ms`);
         const result = res.result;
         if (result && typeof result === 'object') {
@@ -251,7 +255,7 @@ export class PrunaProvider implements IAIProvider {
         resolvePromise(result);
       })
       .catch((error) => {
-        const totalElapsed = Date.now() - totalStart;
+        const totalElapsed = calculateElapsedMs(totalStart);
         generationLogCollector.error(sessionId, TAG, `Generation FAILED in ${totalElapsed}ms: ${error instanceof Error ? error.message : String(error)}`);
         generationLogCollector.endSession(sessionId); // Clean up session on error
         rejectPromise(error);

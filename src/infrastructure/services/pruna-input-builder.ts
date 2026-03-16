@@ -12,6 +12,7 @@ import type { PrunaModelId, PrunaAspectRatio, PrunaResolution } from "../../doma
 import { P_VIDEO_DEFAULTS, DEFAULT_ASPECT_RATIO } from "./pruna-provider.constants";
 import { uploadFileToStorage } from "./pruna-api-client";
 import { generationLogCollector } from "../utils/log-collector";
+import { bytesToKB, calculateElapsedMs } from "../utils/calculation.utils";
 
 const TAG = 'pruna-input-builder';
 
@@ -141,32 +142,35 @@ async function buildImageEditInput(
     throw new Error("Image is required for p-image-edit. Provide 'image', 'images', 'image_url', or 'image_urls'.");
   }
 
-  generationLogCollector.log(sessionId, TAG, `p-image-edit: starting upload of ${rawImages.length} image(s)...`);
+  generationLogCollector.log(sessionId, TAG, `p-image-edit: starting parallel upload of ${rawImages.length} image(s)...`);
 
-  // Upload images to Pruna file storage and collect URLs
-  const imageUrls: string[] = [];
-  for (let i = 0; i < rawImages.length; i++) {
-    const rawImage = rawImages[i];
+  // Upload images to Pruna file storage in PARALLEL for better performance
+  // Single image uploads skip the overhead of Promise.all()
+  const uploadPromises = rawImages.map(async (rawImage, index) => {
     const uploadStart = Date.now();
 
-    generationLogCollector.log(sessionId, TAG, `p-image-edit: [${i + 1}/${rawImages.length}] Starting upload...`, {
-      imageSizeKB: Math.round(rawImage.length / 1024),
+    generationLogCollector.log(sessionId, TAG, `p-image-edit: [${index + 1}/${rawImages.length}] Starting upload...`, {
+      imageSizeKB: bytesToKB(rawImage.length),
       isBase64: rawImage.includes('base64'),
       isUrl: rawImage.startsWith('http'),
     });
 
     // Upload to file storage (if already a URL, it will be returned as-is)
     const fileUrl = await uploadFileToStorage(rawImage, apiKey, sessionId);
-    imageUrls.push(fileUrl);
 
-    const uploadElapsed = Date.now() - uploadStart;
-    generationLogCollector.log(sessionId, TAG, `p-image-edit: [${i + 1}/${rawImages.length}] Upload complete`, {
+    const uploadElapsed = calculateElapsedMs(uploadStart);
+    generationLogCollector.log(sessionId, TAG, `p-image-edit: [${index + 1}/${rawImages.length}] Upload complete`, {
       fileUrl: fileUrl.substring(0, 80) + '...',
       elapsedMs: uploadElapsed,
     });
-  }
 
-  generationLogCollector.log(sessionId, TAG, `All images uploaded successfully`, {
+    return fileUrl;
+  });
+
+  // Wait for all uploads to complete in parallel
+  const imageUrls = await Promise.all(uploadPromises);
+
+  generationLogCollector.log(sessionId, TAG, `All images uploaded successfully in parallel`, {
     totalImages: imageUrls.length,
   });
 
@@ -184,7 +188,7 @@ async function buildImageEditInput(
       promptLength: prompt.length,
       aspectRatio,
       firstImageUrl: imageUrls[0]?.substring(0, 60) + '...',
-      payloadSizeKB: Math.round(JSON.stringify(payload).length / 1024),
+      payloadSizeKB: bytesToKB(JSON.stringify(payload).length),
     });
   }
 
@@ -228,7 +232,7 @@ async function buildVideoInput(
   }
 
   generationLogCollector.log(sessionId, TAG, 'p-video: preparing image for video generation...', {
-    imageSizeKB: Math.round(rawImage.length / 1024),
+    imageSizeKB: bytesToKB(rawImage.length),
     isBase64: rawImage.includes('base64'),
     isUrl: rawImage.startsWith('http'),
   });
@@ -236,7 +240,7 @@ async function buildVideoInput(
   // Upload base64 to file storage if needed (p-video requires HTTPS URL)
   const uploadStart = Date.now();
   const fileUrl = await uploadFileToStorage(rawImage, apiKey, sessionId);
-  const uploadElapsed = Date.now() - uploadStart;
+  const uploadElapsed = calculateElapsedMs(uploadStart);
 
   generationLogCollector.log(sessionId, TAG, 'p-video: image upload complete', {
     fileUrl: fileUrl.substring(0, 80) + '...',
@@ -273,14 +277,14 @@ async function buildVideoInput(
   const rawAudio = input.audio as string | undefined;
   if (rawAudio) {
     generationLogCollector.log(sessionId, TAG, 'p-video: preparing audio for video generation...', {
-      audioSizeKB: Math.round(rawAudio.length / 1024),
+      audioSizeKB: bytesToKB(rawAudio.length),
       isBase64: rawAudio.includes('base64'),
       isUrl: rawAudio.startsWith('http'),
     });
 
     const audioUploadStart = Date.now();
     const audioUrl = await uploadFileToStorage(rawAudio, apiKey, sessionId);
-    const audioUploadElapsed = Date.now() - audioUploadStart;
+    const audioUploadElapsed = calculateElapsedMs(audioUploadStart);
 
     payload.audio = audioUrl;
     generationLogCollector.log(sessionId, TAG, 'p-video: audio upload complete', {

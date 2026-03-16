@@ -1,10 +1,10 @@
 /**
- * Type Guards Index
+ * Type Guards
  */
 
-import type { PrunaModelId } from "../../../domain/entities/pruna.types";
-import { PrunaErrorType } from "../../../domain/entities/error.types";
-import { VALID_PRUNA_MODELS } from "../../services/pruna-provider.constants";
+import type { PrunaModelId } from "../../domain/entities/pruna.types";
+import { PrunaErrorType } from "../../domain/entities/error.types";
+import { VALID_PRUNA_MODELS, DEFAULT_PRUNA_CONFIG } from "../services/pruna-provider.constants";
 
 export function isPrunaModelId(value: unknown): value is PrunaModelId {
   if (typeof value !== 'string') return false;
@@ -29,5 +29,5 @@ export function isValidPrompt(value: unknown): value is string {
 }
 
 export function isValidTimeout(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 3600000;
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= DEFAULT_PRUNA_CONFIG.maxTimeoutMs;
 }
