@@ -116,7 +116,7 @@ export async function uploadFileToStorage(
     (formData as unknown as { append: (name: string, value: typeof fileObject) => void }).append('content', fileObject);
 
     generationLogCollector.log(sessionId, TAG, 'FormData created', {
-      hasContent: (formData as any).has?.('content') ?? true,
+      hasContent: (formData as unknown as { has?: (key: string) => boolean }).has?.('content') ?? true,
       fileName: fileObject.name,
       mimeType: fileObject.type,
     });
@@ -124,7 +124,7 @@ export async function uploadFileToStorage(
     // __DEV__ log FormData
     if (typeof __DEV__ !== 'undefined' && __DEV__) {
       console.log(`[DEV] [${TAG}] FormData created (file object format):`, {
-        hasContent: (formData as any).has?.('content') ?? true,
+        hasContent: (formData as unknown as { has?: (key: string) => boolean }).has?.('content') ?? true,
         fileObject: {
           uri: fileObject.uri.substring(0, 50) + '...',
           type: fileObject.type,
@@ -138,7 +138,7 @@ export async function uploadFileToStorage(
       console.log(`[DEV] [${TAG}] Sending upload request:`, {
         url: PRUNA_FILES_URL,
         method: 'POST',
-        hasContent: (formData as any).has?.('content') ?? true,
+        hasContent: (formData as unknown as { has?: (key: string) => boolean }).has?.('content') ?? true,
       });
     }
 
@@ -210,8 +210,8 @@ export async function uploadFileToStorage(
           errorDetails,
           url: PRUNA_FILES_URL,
           formDataPreview: {
-            hasContent: (formData as any).has?.('content') ?? true,
-            contentType: (formData as any).get?.('content')?.toString().substring(0, 100) + '...',
+            hasContent: (formData as unknown as { has?: (key: string) => boolean }).has?.('content') ?? true,
+            contentType: (formData as unknown as { get?: (key: string) => unknown }).get?.('content')?.toString().substring(0, 100) + '...',
           },
         });
       }
