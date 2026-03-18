@@ -95,6 +95,7 @@
   },
   "files": [
     "src",
+    ".agents",
     "README.md",
     "LICENSE"
   ]
