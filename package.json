@@ -12,7 +12,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit --project tsconfig.typecheck.json",
     "lint": "eslint src --ext .ts,.tsx --max-warnings 0",
-    "lint:fix": "eslint src --ext .ts,.tsx --fix"
+    "lint:fix": "eslint src --ext .ts,.tsx --fix",
+    "setup:skill": "node -e \"const fs = require('fs'); const path = require('path'); const skillDir = path.join(process.env.HOME, '.claude', 'skills', 'react-native-ai-pruna-provider'); fs.mkdirSync(skillDir, {recursive: true}); fs.copyFileSync(path.join(__dirname, 'skills/SKILL.md'), path.join(skillDir, 'SKILL.md')); console.log('✅ @umituz/react-native-ai-pruna-provider setup skill installed to Claude Code!');\""
   },
   "keywords": [
     "react-native",
