@@ -300,32 +300,11 @@ export class PrunaProvider implements IAIProvider {
     }
   }
 
-  reset(): void {
-    cancelAllRequests();
-    this.lastRequestKey = null;
-    this.apiKey = null;
-    this.initialized = false;
-  }
-
   cancelCurrentRequest(): void {
     if (this.lastRequestKey) {
       cancelRequest(this.lastRequestKey);
       this.lastRequestKey = null;
     }
-  }
-
-  hasRunningRequest(): boolean {
-    return hasActiveRequests();
-  }
-
-  getSessionLogs(sessionId?: string): LogEntry[] {
-    if (!sessionId) return [];
-    return generationLogCollector.getEntries(sessionId);
-  }
-
-  endLogSession(sessionId?: string): LogEntry[] {
-    if (!sessionId) return [];
-    return generationLogCollector.endSession(sessionId);
   }
 }
 

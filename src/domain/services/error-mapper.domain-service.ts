@@ -178,18 +178,15 @@ export class ErrorMapperService {
     stack?: string,
     statusCode?: number
   ): PrunaErrorInfo {
-    const error: PrunaErrorInfo = {
+    return {
       type,
       messageKey,
       retryable,
       originalError,
+      ...(originalErrorName && { originalErrorName }),
+      ...(stack && { stack }),
+      ...(statusCode !== undefined && { statusCode }),
     };
-
-    if (originalErrorName) error.originalErrorName = originalErrorName;
-    if (stack) error.stack = stack;
-    if (statusCode !== undefined) error.statusCode = statusCode;
-
-    return error;
   }
 
   private static extractMessage(error: unknown): string {

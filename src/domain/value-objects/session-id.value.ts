@@ -15,8 +15,4 @@ export class SessionId {
   toString(): string {
     return this.value;
   }
-
-  equals(other: SessionId): boolean {
-    return this.value === other.value;
-  }
 }

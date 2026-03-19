@@ -5,6 +5,7 @@
 
 import { providerRegistry } from '@umituz/react-native-ai-generation-content';
 import { prunaProvider } from '../infrastructure/services/pruna-provider';
+import { logger } from '../infrastructure/logging/pruna-logger';
 
 /**
  * InitModule interface (from @umituz/react-native-design-system)
@@ -89,7 +90,9 @@ export function createAiProviderInitModule(
 
         return true;
       } catch (error) {
-        console.error('[AiProviderInitModule] Pruna initialization failed:', error);
+        logger.error('app-init', 'ai-provider', 'Pruna initialization failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
         throw error;
       }
     },

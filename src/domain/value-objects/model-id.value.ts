@@ -26,16 +26,4 @@ export class ModelId {
   toString(): string {
     return this.value;
   }
-
-  isImage(): boolean {
-    return this.value === 'p-image';
-  }
-
-  isImageEdit(): boolean {
-    return this.value === 'p-image-edit';
-  }
-
-  isVideo(): boolean {
-    return this.value === 'p-video';
-  }
 }

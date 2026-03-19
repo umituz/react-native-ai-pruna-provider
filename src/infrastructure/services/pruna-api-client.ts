@@ -435,7 +435,10 @@ export async function pollForResult(
       });
 
       if (!statusRes.ok) {
-        generationLogCollector.warn(sessionId, TAG, `Poll attempt ${i + 1}/${maxAttempts}: HTTP ${statusRes.status}, skipping...`);
+        // Only log non-retryable errors to reduce log noise
+        if (statusRes.status >= 400 && statusRes.status < 500) {
+          generationLogCollector.warn(sessionId, TAG, `Poll HTTP ${statusRes.status}, skipping...`);
+        }
         continue;
       }
 
@@ -449,21 +452,20 @@ export async function pollForResult(
         }
       } else if (statusData.status === 'failed') {
         const errorMessage = statusData.error || "Generation failed during processing.";
-        generationLogCollector.error(sessionId, TAG, `Polling: generation failed — ${errorMessage}`);
+        generationLogCollector.error(sessionId, TAG, `Polling failed: ${errorMessage}`);
         throw new Error(errorMessage);
       }
 
-      // Still processing — log progress periodically
-      if ((i + 1) % 10 === 0) {
-        generationLogCollector.log(sessionId, TAG, `Polling: still processing (attempt ${i + 1}/${maxAttempts})...`);
+      // Log progress only every 30 attempts to reduce overhead (every ~90 seconds)
+      if ((i + 1) % 30 === 0) {
+        generationLogCollector.log(sessionId, TAG, `Still processing (attempt ${i + 1}/${maxAttempts})`);
       }
     } catch (error) {
       if (error instanceof Error && error.message.includes("cancelled by user")) {
         throw error;
       }
-      // Non-fatal poll error — continue polling
+      // Non-fatal poll error — continue polling silently
       if (error instanceof Error && !error.message.includes("failed during processing")) {
-        generationLogCollector.warn(sessionId, TAG, `Poll attempt ${i + 1} error: ${error.message}`);
         continue;
       }
       throw error;
@@ -478,15 +480,31 @@ export async function pollForResult(
  * Checks multiple possible locations (priority order).
  */
 export function extractUri(data: PrunaPredictionResponse): string | null {
-  return (
-    data.generation_url ||
-    (data.output && typeof data.output === 'object' && !Array.isArray(data.output) ? (data.output as { url: string }).url : null) ||
-    (typeof data.output === 'string' ? data.output : null) ||
-    data.video_url ||
-    (Array.isArray(data.output) ? data.output[0] : null) ||
-    data.data ||
-    null
-  );
+  // Priority 1: Direct generation URL
+  if (data.generation_url) return data.generation_url;
+
+  // Priority 2: Output object URL
+  if (data.output && typeof data.output === 'object' && !Array.isArray(data.output)) {
+    const outputObj = data.output as { url?: string };
+    if (outputObj.url) return outputObj.url;
+  }
+
+  // Priority 3: Output as string
+  if (typeof data.output === 'string') return data.output;
+
+  // Priority 4: Video URL
+  if (data.video_url) return data.video_url;
+
+  // Priority 5: First array element
+  if (Array.isArray(data.output) && data.output.length > 0) {
+    const firstElement = data.output[0];
+    if (typeof firstElement === 'string') return firstElement;
+  }
+
+  // Priority 6: Data field
+  if (data.data) return data.data;
+
+  return null;
 }
 
 /**

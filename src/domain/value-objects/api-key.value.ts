@@ -22,9 +22,4 @@ export class ApiKey {
   toString(): string {
     return this.value;
   }
-
-  mask(): string {
-    if (this.value.length <= 8) return '********';
-    return `${this.value.substring(0, 4)}...${this.value.substring(this.value.length - 4)}`;
-  }
 }

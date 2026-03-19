@@ -57,19 +57,16 @@ function getRequestKeyCache(): RequestKeyCache {
   return globalObj[REQUEST_KEY_CACHE_KEY] as RequestKeyCache;
 }
 
-function sortKeys(obj: unknown): unknown {
-  if (obj === null || typeof obj !== "object") return obj;
-  if (Array.isArray(obj)) return obj.map(sortKeys);
-  const sorted: Record<string, unknown> = {};
-  for (const key of Object.keys(obj as Record<string, unknown>).sort()) {
-    sorted[key] = sortKeys((obj as Record<string, unknown>)[key]);
-  }
-  return sorted;
-}
-
 function generateCacheKey(model: string, input: Record<string, unknown>): string {
-  // Fast hash using JSON.stringify (already sorted by sortKeys)
-  return `${model}:${JSON.stringify(input)}`;
+  // Fast deterministic hash using sorted property names
+  // Much faster than deep object sorting + JSON.stringify
+  const keys = Object.keys(input).sort();
+  let hash = model;
+  for (const key of keys) {
+    const value = input[key];
+    hash += `|${key}:${typeof value === 'object' ? JSON.stringify(value) : String(value)}`;
+  }
+  return hash;
 }
 
 export function createRequestKey(model: string, input: Record<string, unknown>): string {
@@ -83,20 +80,11 @@ export function createRequestKey(model: string, input: Record<string, unknown>):
     return cached.key;
   }
 
-  // Cache miss or expired - generate new key
-  // Use full JSON string instead of hash to eliminate collision risk
-  // Sort keys ensures consistent key generation regardless of object property order
-  const inputStr = JSON.stringify(sortKeys(input));
-
-  // Use base64 encoding for safer string representation
-  // This eliminates collision risk entirely while maintaining readability
-  const safeInputStr = inputStr.replace(/[^a-zA-Z0-9]/g, '_');
-
-  // Use first 64 chars to keep key length manageable while maintaining uniqueness
-  const prefix = safeInputStr.substring(0, 64);
-  const suffix = safeInputStr.length > 64 ? safeInputStr.slice(-64) : '';
-
-  const requestKey = `${model}:${prefix}${suffix ? '...' + suffix : ''}`;
+  // Cache miss or expired - generate new key using simple hash
+  // Use timestamp + random suffix for uniqueness (crypto-friendly)
+  const timestamp = Date.now();
+  const randomSuffix = Math.random().toString(36).substring(2, 10);
+  const requestKey = `${model}_${cacheKey.substring(0, 16)}_${timestamp}_${randomSuffix}`;
 
   // Store in cache with LRU eviction
   cache.set(cacheKey, { key: requestKey, timestamp: now });
@@ -110,13 +98,6 @@ export function createRequestKey(model: string, input: Record<string, unknown>):
   }
 
   return requestKey;
-}
-
-export function clearRequestKeyCache(): void {
-  const globalObj = globalThis as Record<string, unknown>;
-  if (globalObj[REQUEST_KEY_CACHE_KEY]) {
-    (globalObj[REQUEST_KEY_CACHE_KEY] as RequestKeyCache).clear();
-  }
 }
 
 export function getExistingRequest<T>(key: string): ActiveRequest<T> | undefined {
@@ -171,6 +152,9 @@ export function cleanupRequestStore(maxAge: number = MAX_REQUEST_AGE): number {
   if (store.size === 0) {
     stopCleanupTimer();
   }
+
+  // Also cleanup orphaned requestId mappings
+  cleanupRequestIdMappings(maxAge);
 
   return cleanedCount;
 }
@@ -227,6 +211,25 @@ export function getResponseUrlForRequestId(requestId: string): string | undefine
 
 export function removeRequestIdMapping(requestId: string): void {
   getRequestIdMap().delete(requestId);
+}
+
+/** Cleanup old requestId mappings to prevent unbounded memory growth */
+export function cleanupRequestIdMappings(maxAge: number = MAX_REQUEST_AGE): number {
+  const requestStore = getRequestStore();
+  const requestIdMap = getRequestIdMap();
+  const now = Date.now();
+  let cleanedCount = 0;
+
+  // Remove mappings for requests that no longer exist or are too old
+  for (const [requestId] of requestIdMap.entries()) {
+    const request = requestStore.get(requestId);
+    if (!request || (now - request.createdAt > maxAge)) {
+      requestIdMap.delete(requestId);
+      cleanedCount++;
+    }
+  }
+
+  return cleanedCount;
 }
 
 // Clear any leftover timer on module load (hot reload safety)

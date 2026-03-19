@@ -16,6 +16,7 @@ export enum PrunaErrorType {
   FILE_UPLOAD = "file_upload",
   POLLING_TIMEOUT = "polling_timeout",
   INVALID_IMAGE = "invalid_image",
+  CANCELLED = "cancelled",
   UNKNOWN = "unknown",
 }
 

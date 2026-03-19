@@ -52,6 +52,7 @@ export type { PrunaProvider as PrunaProviderType } from "./infrastructure/servic
 export {
   cleanupRequestStore,
   stopAutomaticCleanup,
+  cleanupRequestIdMappings,
 } from "./infrastructure/services/request-store";
 export type { ActiveRequest } from "./infrastructure/services/request-store";
 
@@ -102,7 +103,6 @@ export {
   MIME_AUDIO_WAV,
   MIME_AUDIO_FLAC,
   MIME_AUDIO_MP4,
-  MIME_APPLICATION_OCTET,
   MIME_DEFAULT,
   MIME_TO_EXTENSION,
   getExtensionForMime,

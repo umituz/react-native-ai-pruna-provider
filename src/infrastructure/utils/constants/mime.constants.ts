@@ -15,8 +15,7 @@ export const MIME_AUDIO_FLAC = 'audio/flac' as const;
 export const MIME_AUDIO_MP4 = 'audio/mp4' as const;
 
 // ── Fallback ────────────────────────────────────────────────
-export const MIME_APPLICATION_OCTET = 'application/octet-stream' as const;
-export const MIME_DEFAULT = MIME_APPLICATION_OCTET;
+export const MIME_DEFAULT = 'application/octet-stream' as const;
 
 /** Maps MIME type → file extension for upload naming */
 export const MIME_TO_EXTENSION: Readonly<Record<string, string>> = {
@@ -27,7 +26,7 @@ export const MIME_TO_EXTENSION: Readonly<Record<string, string>> = {
   [MIME_AUDIO_WAV]: 'wav',
   [MIME_AUDIO_FLAC]: 'flac',
   [MIME_AUDIO_MP4]: 'm4a',
-  [MIME_APPLICATION_OCTET]: 'bin',
+  [MIME_DEFAULT]: 'bin',
 };
 
 /**

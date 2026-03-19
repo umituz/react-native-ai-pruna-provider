@@ -66,16 +66,6 @@ export class PrunaService {
     const apiKey = this.ensureInitialized();
     return generateImageEditUseCase.execute(input, apiKey.toString(), signal);
   }
-
-  reset(): void {
-    this.apiKey = null;
-    this.initialized = false;
-  }
-
-  getSessionLogs(sessionId: string): unknown[] {
-    // Return logs for debugging
-    return [];
-  }
 }
 
 export const prunaService = new PrunaService();

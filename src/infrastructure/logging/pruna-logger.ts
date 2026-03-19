@@ -87,14 +87,3 @@ export class PrunaLogger {
 // Singleton instance
 export const logger = PrunaLogger.getInstance();
 
-// Convenience factory function
-export function createLogger(tag: string) {
-  return {
-    info: (sessionId: string, message: string, data?: Record<string, unknown>) =>
-      logger.info(sessionId, tag, message, data),
-    warn: (sessionId: string, message: string, data?: Record<string, unknown>) =>
-      logger.warn(sessionId, tag, message, data),
-    error: (sessionId: string, message: string, data?: Record<string, unknown>) =>
-      logger.error(sessionId, tag, message, data),
-  };
-}

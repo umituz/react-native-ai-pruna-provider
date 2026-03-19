@@ -30,20 +30,21 @@ const MAX_SESSIONS = 50;
 
 class GenerationLogCollector {
   private sessions = new Map<string, Session>();
-  private sessionQueue: string[] = []; // FIFO queue for O(1) eviction
+  private sessionQueue = new Set<string>(); // O(1) lookup and deletion
 
   startSession(): string {
-    // Evict oldest session if limit exceeded (O(1) operation)
-    if (this.sessionQueue.length >= MAX_SESSIONS) {
-      const oldestKey = this.sessionQueue.shift();
+    // Evict oldest session if limit exceeded
+    if (this.sessionQueue.size >= MAX_SESSIONS) {
+      const oldestKey = this.sessionQueue.keys().next().value;
       if (oldestKey) {
         this.sessions.delete(oldestKey);
+        this.sessionQueue.delete(oldestKey);
       }
     }
 
     const id = `pruna_session_${++sessionCounter}_${Date.now()}`;
     this.sessions.set(id, { startTime: Date.now(), entries: [] });
-    this.sessionQueue.push(id);
+    this.sessionQueue.add(id);
     return id;
   }
 
@@ -60,20 +61,17 @@ class GenerationLogCollector {
   }
 
   getEntries(sessionId: string): LogEntry[] {
-    return [...(this.sessions.get(sessionId)?.entries ?? [])];
+    return this.sessions.get(sessionId)?.entries ?? [];
   }
 
   endSession(sessionId: string): LogEntry[] {
     const session = this.sessions.get(sessionId);
     if (!session) return [];
-    const entries = [...session.entries];
+    const entries = session.entries;
     this.sessions.delete(sessionId);
 
-    // Remove from queue as well
-    const queueIndex = this.sessionQueue.indexOf(sessionId);
-    if (queueIndex !== -1) {
-      this.sessionQueue.splice(queueIndex, 1);
-    }
+    // Remove from queue as well (O(1) with Set)
+    this.sessionQueue.delete(sessionId);
 
     return entries;
   }

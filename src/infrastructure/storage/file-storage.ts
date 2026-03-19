@@ -5,7 +5,7 @@
 
 import { httpClient } from "../api/http-client";
 import { logger } from "../logging/pruna-logger";
-import { PRUNA_FILES_URL, UPLOAD_CONFIG } from "../../services/pruna-provider.constants";
+import { PRUNA_FILES_URL, UPLOAD_CONFIG } from "../services/pruna-provider.constants";
 
 export class FileStorageService {
   async uploadFile(

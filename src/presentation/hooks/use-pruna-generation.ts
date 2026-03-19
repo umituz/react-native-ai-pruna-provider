@@ -34,11 +34,7 @@ function convertJobStatusToPrunaQueueStatus(status: JobStatus, currentRequestId:
   return {
     status: status.status as PrunaQueueStatus["status"],
     requestId: status.requestId ?? currentRequestId ?? "",
-    logs: status.logs?.map((log: AILogEntry) => ({
-      message: log.message,
-      level: log.level,
-      timestamp: log.timestamp,
-    })),
+    logs: status.logs as PrunaQueueStatus["logs"], // Type-safe cast, no array copy
   };
 }
 
