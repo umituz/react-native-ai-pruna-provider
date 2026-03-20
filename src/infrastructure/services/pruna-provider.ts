@@ -306,6 +306,12 @@ export class PrunaProvider implements IAIProvider {
       this.lastRequestKey = null;
     }
   }
+
+  reset(): void {
+    // Cancel all active requests and clear internal state
+    cancelAllRequests();
+    this.lastRequestKey = null;
+  }
 }
 
 export const prunaProvider = new PrunaProvider();
